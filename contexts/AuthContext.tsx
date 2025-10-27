@@ -6,7 +6,7 @@ export interface Profile {
   id: string;
   full_name: string | null;
   phone_number: string | null;
-  role: string | null; // Added for role-based access
+  role: string | null;
 }
 
 interface AuthContextType {
@@ -14,7 +14,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
-  isAdmin: boolean; // Added for easy checking
+  isAdmin: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -25,11 +25,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, phone_number, role') // Fetch the new role field
+      .select('id, full_name, phone_number, role')
       .eq('id', userId)
       .single();
 
@@ -38,6 +39,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return null;
     }
     return data as Profile;
+  }, []);
+
+  const checkAdminStatus = useCallback(async (currentUser: User | null) => {
+      if (!currentUser) {
+          setIsAdmin(false);
+          return;
+      }
+      try {
+          const { data, error } = await supabase.functions.invoke('get-admin-email');
+          if (error) throw error;
+          
+          const adminEmail = data?.adminEmail;
+          if (adminEmail && currentUser.email === adminEmail) {
+              setIsAdmin(true);
+          } else {
+              setIsAdmin(false);
+          }
+      } catch (e) {
+          console.error("Could not verify admin status. Ensure the 'get-admin-email' function is deployed and the ADMIN_EMAIL secret is set.", e);
+          setIsAdmin(false);
+      }
   }, []);
 
   useEffect(() => {
@@ -50,8 +72,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (currentUser) {
           const userProfile = await fetchProfile(currentUser.id);
           setProfile(userProfile);
+          await checkAdminStatus(currentUser);
         } else {
           setProfile(null);
+          setIsAdmin(false);
         }
         setLoading(false);
       }
@@ -65,6 +89,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (currentUser) {
         const userProfile = await fetchProfile(currentUser.id);
         setProfile(userProfile);
+        await checkAdminStatus(currentUser);
       }
       setLoading(false);
     });
@@ -72,20 +97,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, [fetchProfile, checkAdminStatus]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
   };
-  
-  const isAdmin = profile?.role === 'admin';
 
   const value = {
     session,
     user,
     profile,
     loading,
-    isAdmin, // Expose the isAdmin flag
+    isAdmin,
     signOut,
   };
 
