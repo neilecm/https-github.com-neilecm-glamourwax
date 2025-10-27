@@ -90,7 +90,7 @@ const OrdersView: React.FC = () => {
 
     return (
         <div>
-            <h2 className="text-2xl font-semibold mb-4">Recent Orders</h2>
+            <h2 className="text-2xl font-semibold mb-4">My Orders</h2>
             <div className="overflow-x-auto">
                 <table className="min-w-full bg-white">
                     <thead className="bg-gray-100">
@@ -331,7 +331,7 @@ const AdminView: React.FC = () => {
   };
 
   const navItems = {
-      'orders': 'My Orders',
+      'orders': 'Orders',
       'products': 'Product',
       'marketing': 'Marketing Centre',
       'customerservice': 'Customer Service',
