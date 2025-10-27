@@ -148,7 +148,7 @@ const OrdersView: React.FC = () => {
 };
 
 
-const ProductsView: React.FC<{ onEdit: (product: Product) => void }> = ({ onEdit }) => {
+const ProductsView: React.FC<{ onEdit: (product: Product) => void; onAddNew: () => void; }> = ({ onEdit, onAddNew }) => {
     const [products, setProducts] = useState<Product[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -186,7 +186,15 @@ const ProductsView: React.FC<{ onEdit: (product: Product) => void }> = ({ onEdit
 
     return (
         <div>
-            <h2 className="text-2xl font-semibold mb-4">My Products</h2>
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-semibold">My Products</h2>
+                <button
+                    onClick={onAddNew}
+                    className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition-colors font-semibold"
+                >
+                    + Add New Product
+                </button>
+            </div>
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg mb-4">{error}</div>}
              <div className="overflow-x-auto">
                 <table className="min-w-full bg-white">
@@ -317,7 +325,7 @@ const AdminView: React.FC = () => {
     setActiveView('products'); // Go back to the product list
   }
   
-  const handleAddNew = () => {
+  const handleAddNewProduct = () => {
     setEditingProduct(null);
     setActiveView('addProduct');
   };
@@ -325,7 +333,6 @@ const AdminView: React.FC = () => {
   const navItems = {
       'orders': 'My Orders',
       'products': 'Product',
-      'addProduct': 'Add New Product',
       'marketing': 'Marketing Centre',
       'customerservice': 'Customer Service',
       'finance': 'Finance',
@@ -336,7 +343,7 @@ const AdminView: React.FC = () => {
   const renderActiveView = () => {
     switch(activeView) {
         case 'orders': return <OrdersView />;
-        case 'products': return <ProductsView onEdit={handleEditProduct} />;
+        case 'products': return <ProductsView onEdit={handleEditProduct} onAddNew={handleAddNewProduct} />;
         case 'addProduct': return <ProductForm product={editingProduct} onFinish={handleFormFinish} />;
         case 'marketing': return <PlaceholderView section="Marketing Centre" />;
         case 'customerservice': return <PlaceholderView section="Customer Service" />;
@@ -355,13 +362,9 @@ const AdminView: React.FC = () => {
         {Object.entries(navItems).map(([key, value]) => (
             <button
                 key={key}
-                onClick={() => {
-                    // Special handling for addProduct to ensure form is clean
-                    if (key === 'addProduct') handleAddNew();
-                    else setActiveView(key);
-                }}
+                onClick={() => setActiveView(key)}
                 className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                    activeView === key || (activeView === 'addProduct' && key === 'products' && editingProduct !== null)
+                    (activeView === key || (activeView === 'addProduct' && key === 'products'))
                     ? 'border-b-2 border-pink-500 text-pink-600 bg-pink-50'
                     : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                 }`}
