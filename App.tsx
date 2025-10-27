@@ -1,0 +1,70 @@
+import React, { useState, useCallback } from 'react';
+import { CartProvider } from './contexts/CartContext';
+import Header from './components/Header';
+import HomeView from './views/HomeView';
+import ProductDetailView from './views/ProductDetailView';
+import CartView from './views/CartView';
+import CheckoutView from './views/CheckoutView';
+import OrderConfirmationView from './views/OrderConfirmationView';
+import AdminView from './views/AdminView';
+import Footer from './components/Footer';
+import type { Product } from './types';
+
+export enum View {
+  HOME,
+  PRODUCT_DETAIL,
+  CART,
+  CHECKOUT,
+  CONFIRMATION,
+  ADMIN,
+}
+
+export type AppView =
+  | { name: View.HOME }
+  | { name: View.PRODUCT_DETAIL; productId: string }
+  | { name: View.CART }
+  | { name: View.CHECKOUT }
+  | { name: View.CONFIRMATION; orderId: string }
+  | { name: View.ADMIN };
+
+const App: React.FC = () => {
+  const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
+
+  const navigate = useCallback((view: AppView) => {
+    setCurrentView(view);
+    window.scrollTo(0, 0);
+  }, []);
+
+  const renderView = () => {
+    switch (currentView.name) {
+      case View.HOME:
+        return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
+      case View.PRODUCT_DETAIL:
+        return <ProductDetailView productId={currentView.productId} onBack={() => navigate({ name: View.HOME })} />;
+      case View.CART:
+        return <CartView onCheckout={() => navigate({ name: View.CHECKOUT })} />;
+      case View.CHECKOUT:
+        return <CheckoutView onOrderSuccess={(orderId) => navigate({ name: View.CONFIRMATION, orderId })} />;
+      case View.CONFIRMATION:
+        return <OrderConfirmationView orderId={currentView.orderId} onBackToHome={() => navigate({ name: View.HOME })} />;
+      case View.ADMIN:
+        return <AdminView />;
+      default:
+        return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
+    }
+  };
+
+  return (
+    <CartProvider>
+      <div className="bg-gray-50 min-h-screen text-gray-800">
+        <Header onNavigate={navigate} />
+        <main className="container mx-auto px-4 py-8 pt-24">
+          {renderView()}
+        </main>
+        <Footer />
+      </div>
+    </CartProvider>
+  );
+};
+
+export default App;

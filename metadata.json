@@ -1,0 +1,5 @@
+{
+  "name": "Glamour Wax Boutique",
+  "description": "An elegant e-commerce experience for a Brazilian Waxing Store, featuring product browsing, a shopping cart, and a checkout process. Includes an admin dashboard to manage products using a Supabase backend for data and image storage, and mock integrations for Midtrans payments and RajaOngkir shipping.",
+  "requestFramePermissions": []
+}
