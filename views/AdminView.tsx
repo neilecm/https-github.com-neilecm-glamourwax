@@ -98,6 +98,7 @@ const OrdersView: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+    const [searchQuery, setSearchQuery] = useState('');
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -115,6 +116,19 @@ const OrdersView: React.FC = () => {
     useEffect(() => {
         fetchOrders();
     }, [fetchOrders]);
+    
+    const filteredOrders = orders.filter(order => {
+        const query = searchQuery.toLowerCase().trim();
+        if (!query) return true;
+
+        const clientName = `${order.customers?.first_name || ''} ${order.customers?.last_name || ''}`.toLowerCase();
+        const hasMatchingProduct = order.order_items.some(item =>
+            item.products?.name.toLowerCase().includes(query)
+        );
+        const hasMatchingOrderNumber = order.order_number.toLowerCase().includes(query);
+
+        return clientName.includes(query) || hasMatchingProduct || hasMatchingOrderNumber;
+    });
 
     const handleArrangePickup = async (order: FullOrder) => {
         setActionLoading(prev => ({ ...prev, [order.id]: true }));
@@ -173,7 +187,21 @@ const OrdersView: React.FC = () => {
 
     return (
         <div>
-            <h2 className="text-2xl font-semibold mb-4">My Orders</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-semibold">My Orders</h2>
+              <div className="relative w-full max-w-sm">
+                  <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search by Order No, Client, or Product..."
+                      className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+                  />
+                   <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                   </svg>
+              </div>
+            </div>
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>}
             <div className="overflow-x-auto">
                 <table className="min-w-full bg-white text-sm">
@@ -187,7 +215,7 @@ const OrdersView: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {orders.map(order => {
+                        {filteredOrders.map(order => {
                             const deadline = getShippingDeadline(order);
                             return (
                                 <tr key={order.id} className="border-b hover:bg-gray-50 align-top">
@@ -231,6 +259,9 @@ const OrdersView: React.FC = () => {
                         })}
                     </tbody>
                 </table>
+                {filteredOrders.length === 0 && orders.length > 0 && (
+                    <p className="text-center py-8 text-gray-500">No orders match your search criteria.</p>
+                )}
                 {orders.length === 0 && <p className="text-center py-8 text-gray-500">No orders found.</p>}
             </div>
         </div>
