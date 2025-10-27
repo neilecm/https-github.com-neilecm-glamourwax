@@ -58,14 +58,20 @@ export const supabaseService = {
         if (!acc[variant.productId]) {
             acc[variant.productId] = [];
         }
-        acc[variant.productId].push(variant);
+        acc[variant.productId].push(variant as ProductVariant);
         return acc;
     }, {} as Record<string, ProductVariant[]>);
 
-    const productsWithVariants = products.map(product => ({
-        ...product,
-        variants: variantsByProductId[product.id] || [],
-    }));
+    const productsWithVariants = products.map(product => {
+        const productVariants = variantsByProductId[product.id] || [];
+        return {
+            ...product,
+            variants: productVariants,
+            // Hoist the first variant's media to be the main product media.
+            imageUrls: productVariants[0]?.imageUrls || [],
+            videoUrl: productVariants[0]?.videoUrl || null,
+        };
+    });
 
     return productsWithVariants;
   },
@@ -106,16 +112,21 @@ export const supabaseService = {
     }
 
     // Step 3: Combine them into a single Product object.
+    const fetchedVariants = (variants || []) as ProductVariant[];
     return {
         ...product,
-        variants: variants || [],
+        variants: fetchedVariants,
+        // The main product media are considered to be the media of the first variant.
+        imageUrls: fetchedVariants[0]?.imageUrls || [],
+        videoUrl: fetchedVariants[0]?.videoUrl || null,
     };
   },
 
   // Create a new product and its variants
   async addProduct(payload: NewProductPayload): Promise<Product> {
-    // 1. Insert the main product data
-    const { variants, ...productData } = payload;
+    // 1. Separate media URLs from the main product data to prevent inserting into the wrong table.
+    const { variants, imageUrls, videoUrl, ...productData } = payload as any;
+
     const { data: newProduct, error: productError } = await supabase
       .from('products')
       .insert([productData])
@@ -127,8 +138,14 @@ export const supabaseService = {
       throw new Error(`Failed to add product. Supabase error: ${productError.message}`);
     }
 
-    // 2. Prepare and insert the variants linked to the new product
+    // 2. Prepare and insert the variants, assigning the main media to the first variant.
     if (variants && variants.length > 0) {
+      if (imageUrls) {
+        variants[0].imageUrls = imageUrls;
+      }
+      if (videoUrl) {
+        variants[0].videoUrl = videoUrl;
+      }
       const variantsToInsert = variants.map(variant => ({
         ...variant,
         productId: newProduct.id,
@@ -140,21 +157,20 @@ export const supabaseService = {
       
       if (variantsError) {
         console.error('Error adding product variants:', variantsError);
-        throw new Error(`Product was created, but failed to add variants. Supabase error: ${variantsError.message}`);
+        // Attempt to roll back product creation for consistency
+        await supabase.from('products').delete().eq('id', newProduct.id);
+        throw new Error(`Product creation failed while adding variants (rolled back). Supabase error: ${variantsError.message}`);
       }
     }
     
-    // 3. Return the full product with variants
-    // FIX: The result of an awaited promise is the resolved value (Product), not another promise.
-    // The async function will automatically wrap the returned Product in a Promise.
     return (await supabaseService.getProductById(newProduct.id)) as Product;
   },
 
   // Update an existing product and its variants
   async updateProduct(id: string, payload: UpdateProductPayload): Promise<Product> {
-    const { variants, ...productData } = payload;
+    // 1. Separate media URLs from the main product data to avoid updating a non-existent column.
+    const { variants, imageUrls, videoUrl, ...productData } = payload as any;
     
-    // 1. Update the main product data
     const { data: updatedProduct, error: productError } = await supabase
       .from('products')
       .update(productData)
@@ -167,14 +183,22 @@ export const supabaseService = {
       throw new Error(`Failed to update product. Supabase error: ${productError.message}`);
     }
     
-    // 2. Manage variants (update existing, add new, delete old)
+    // 2. Manage variants, assigning main media to the first variant if they exist.
     if (variants) {
+        if (imageUrls && variants.length > 0) {
+            variants[0].imageUrls = imageUrls;
+        }
+        if (videoUrl && variants.length > 0) {
+            variants[0].videoUrl = videoUrl;
+        }
+
+
         const variantsToUpdate = variants.filter(v => v.id);
         const variantsToAdd = variants.filter(v => !v.id).map(v => ({ ...v, productId: id }));
 
         const { data: existingVariants } = await supabase.from('product_variants').select('id').eq('productId', id);
         const existingVariantIds = existingVariants?.map(v => v.id) || [];
-        const newVariantIds = variantsToUpdate.map(v => v.id).filter(Boolean);
+        const newVariantIds = variantsToUpdate.map(v => v.id).filter(Boolean) as string[];
         const variantsToDelete = existingVariantIds.filter(vid => !newVariantIds.includes(vid));
 
         const [updateResult, addResult, deleteResult] = await Promise.all([
@@ -190,8 +214,6 @@ export const supabaseService = {
         }
     }
     
-    // FIX: The result of an awaited promise is the resolved value (Product), not another promise.
-    // The async function will automatically wrap the returned Product in a Promise.
     return (await supabaseService.getProductById(updatedProduct.id)) as Product;
   },
 
@@ -220,14 +242,14 @@ export const supabaseService = {
     }
   },
 
-  // Upload a file to the 'product-media' storage bucket.
+  // Upload a file to the 'product-images' storage bucket.
   async uploadProductMedia(file: File): Promise<string> {
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}-${Math.random()}.${fileExt}`;
     const filePath = `public/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-      .from('product-media')
+      .from('product-images')
       .upload(filePath, file, {
         cacheControl: '3600',
         upsert: false,
@@ -239,7 +261,7 @@ export const supabaseService = {
     }
 
     const { data } = supabase.storage
-      .from('product-media')
+      .from('product-images')
       .getPublicUrl(filePath);
 
     if (!data.publicUrl) {

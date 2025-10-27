@@ -15,6 +15,7 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
   const [isLoading, setIsLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [addState, setAddState] = useState<'idle' | 'adding' | 'added'>('idle');
 
   const { addToCart } = useCart();
   const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist();
@@ -54,11 +55,19 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
   
   const handleOptionSelect = (optionName: string, value: string) => {
       setSelectedOptions(prev => ({ ...prev, [optionName]: value }));
+      setAddState('idle'); // Reset button state if options change
   };
   
   const handleAddToCart = () => {
-      if (product && selectedVariant) {
-          addToCart(product, selectedVariant, quantity);
+      if (product && selectedVariant && addState === 'idle') {
+          setAddState('adding');
+          setTimeout(() => {
+              addToCart(product, selectedVariant, quantity);
+              setAddState('added');
+              setTimeout(() => {
+                  setAddState('idle');
+              }, 2000); // Revert after 2 seconds
+          }, 300); // Simulate network delay
       }
   };
 
@@ -70,6 +79,23 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
       addToWishlist(product);
     }
   };
+
+  const getButtonState = () => {
+    if (!selectedVariant) {
+        return { text: 'Unavailable', disabled: true, className: 'bg-gray-300 cursor-not-allowed' };
+    }
+    switch (addState) {
+        case 'adding':
+            return { text: 'Adding to Cart...', disabled: true, className: 'bg-pink-400' };
+        case 'added':
+            return { text: 'Added to Cart ✓', disabled: true, className: 'bg-green-500' };
+        case 'idle':
+        default:
+            return { text: 'Add to Cart', disabled: false, className: 'bg-pink-500 hover:bg-pink-600' };
+    }
+  };
+
+  const buttonState = getButtonState();
 
   if (isLoading) {
     return <Spinner />;
@@ -129,17 +155,17 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
           <div className="flex items-center gap-4">
              <button 
                 onClick={handleAddToCart}
-                disabled={!selectedVariant}
-                className="flex-grow bg-pink-500 text-white py-3 rounded-lg text-lg font-semibold hover:bg-pink-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                disabled={buttonState.disabled}
+                className={`flex-grow text-white py-3 rounded-lg text-lg font-semibold transition-colors ${buttonState.className}`}
              >
-                {selectedVariant ? 'Add to Cart' : 'Unavailable'}
+                {buttonState.text}
              </button>
              <button
                 onClick={handleWishlistToggle}
                 className={`p-3 border rounded-lg transition-colors ${isWishlisted ? 'bg-pink-100 border-pink-500 text-pink-500' : 'border-gray-300 text-gray-500 hover:bg-gray-100'}`}
                 aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
              >
-                <svg xmlns="http://www.w.org/2000/svg" className="h-6 w-6" fill={isWishlisted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill={isWishlisted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 016.364 0L12 7.636l1.318-1.318a4.5 4.5 0 016.364 6.364L12 20.364l-7.682-7.682a4.5 4.5 0 010-6.364z" />
                 </svg>
              </button>

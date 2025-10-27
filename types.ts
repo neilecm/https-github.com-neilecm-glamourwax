@@ -20,6 +20,8 @@ export interface ProductVariant {
   weight: number; // in grams
   stock: number;
   imageUrls: string[]; // Specific images for this variant
+  // FIX: Add 'videoUrl' property to ProductVariant type.
+  videoUrl?: string | null;
   options: Record<string, string>; // e.g., { "Size": "S", "Color": "Red" }
 }
 

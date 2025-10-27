@@ -1,3 +1,4 @@
+// views/AdminView.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { komerceService } from '../services/komerceService';
@@ -393,7 +394,7 @@ const MediaUploader: React.FC<{ urls: (string | null)[]; onUrlsChange: (newUrls:
 
 type FormState = Omit<Product, 'id' | 'createdAt'>;
 const initialFormState: FormState = { name: '', category: '', imageUrls: [], videoUrl: null, longDescription: '', variantOptions: [], variants: [] };
-type ProductFormSection = 'basic' | 'description' | 'sales' | 'shipping' | 'others';
+type ProductFormSection = 'basic' | 'description' | 'sales' | 'others';
 
 const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> = ({ product, onFinish }) => {
     const [formState, setFormState] = useState<FormState>(initialFormState);
@@ -424,25 +425,32 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
-        if (formState.imageUrls.length === 0) { setError("Please upload at least one product image."); return; }
-        if (formState.variants.length === 0 && formState.variantOptions.length > 0) { setError("Please add values to your product options to generate variants."); return; }
-        if (formState.variants.length === 0) {
-            // Create a default variant if no options are defined
-            const defaultVariant: Omit<ProductVariant, 'id' | 'productId'> = {
-                name: 'Default', price: 0, sku: '', gtin: null, weight: 0, stock: 0, imageUrls: [], options: {}
-            };
-             await supabaseService.addProduct({ ...formState, variants: [defaultVariant] } as any);
-        } else {
-             if (product) {
+
+        // Basic validation
+        if (formState.imageUrls.length === 0) {
+            setError("Please upload at least one product image.");
+            setActiveSection('basic');
+            return;
+        }
+        if (formState.variants.length === 0 && formState.variantOptions.length > 0) {
+            setError("Please add values to your product options to generate variants.");
+            setActiveSection('sales');
+            return;
+        }
+        
+        try {
+            if (product) {
                 await supabaseService.updateProduct(product.id, formState);
             } else {
-                await supabaseService.addProduct(formState as any);
+                const payload = { ...formState };
+                if (payload.variants.length === 0) {
+                    payload.variants = [{ name: 'Default', price: 0, sku: '', gtin: null, weight: 0, stock: 0, imageUrls: [], options: {} }] as any;
+                }
+                await supabaseService.addProduct(payload as any);
             }
-        }
-        onFinish();
-        try {
+            onFinish();
         } catch (err: any) {
-            setError(err.message || 'Failed to save product.');
+            setError(err.message || 'An unexpected error occurred while saving the product.');
         }
     };
     
@@ -501,26 +509,15 @@ const VariantManager: React.FC<{
         
         const newVariants = combinations.map(combo => {
             const name = Object.values(combo).join(' / ') || 'Default';
-
-            // Find best matching existing variant to preserve data
-            let bestMatch = null;
-            let maxMatchCount = -1;
-            for (const v of variants) {
-                const isSubset = Object.entries(v.options).every(([key, value]) => combo[key] === value);
-                if (isSubset) {
-                    const matchCount = Object.keys(v.options).length;
-                    if (matchCount > maxMatchCount) {
-                        maxMatchCount = matchCount;
-                        bestMatch = v;
-                    }
-                }
-            }
             
-            const existingVariant = bestMatch;
+            // Find an existing variant that matches the new combination to preserve its data
+            const existingVariant = variants.find(v => {
+                return Object.keys(combo).length === Object.keys(v.options).length &&
+                       Object.entries(combo).every(([key, value]) => v.options[key] === value);
+            });
             
-            return {
-                id: existingVariant?.id || '',
-                productId: existingVariant?.productId || '',
+            // If it's a new combination, the ID should be undefined so the backend treats it as new
+            const newVariantData = {
                 name,
                 price: existingVariant?.price || 0,
                 sku: existingVariant?.sku || '',
@@ -529,12 +526,21 @@ const VariantManager: React.FC<{
                 stock: existingVariant?.stock || 0,
                 imageUrls: existingVariant?.imageUrls || [],
                 options: combo,
+                videoUrl: existingVariant?.videoUrl || null,
             };
+
+            // Only include ID if it's an existing variant.
+            // This prevents sending `id: ""` for new variants.
+            if (existingVariant?.id) {
+                return { ...newVariantData, id: existingVariant.id, productId: existingVariant.productId };
+            }
+            return newVariantData;
+
         });
         
         // Only update if the variants have actually changed to prevent infinite loops.
         if (JSON.stringify(newVariants) !== JSON.stringify(variants)) {
-            onVariantsChange(newVariants);
+            onVariantsChange(newVariants as ProductVariant[]);
         }
     }, [options, variants, onVariantsChange]);
 
@@ -608,11 +614,11 @@ const VariantManager: React.FC<{
                             {variants.map((variant, index) => (
                                 <tr key={variant.name} className="border-b">
                                     <td className="py-2 px-3 font-medium">{variant.name}</td>
-                                    <td className="py-2 px-3"><input type="number" value={variant.price} onChange={e => handleVariantChange(index, 'price', parseFloat(e.target.value))} className="w-24 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="e.g. 69000" value={variant.price} onChange={e => handleVariantChange(index, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" value={variant.sku} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" value={variant.gtin ?? ''} onChange={e => handleVariantChange(index, 'gtin', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
-                                    <td className="py-2 px-3"><input type="number" value={variant.weight} onChange={e => handleVariantChange(index, 'weight', parseFloat(e.target.value))} className="w-20 p-1 border rounded-md" /></td>
-                                    <td className="py-2 px-3"><input type="number" value={variant.stock} onChange={e => handleVariantChange(index, 'stock', parseInt(e.target.value, 10))} className="w-20 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="e.g. 150" value={variant.weight} onChange={e => handleVariantChange(index, 'weight', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" inputMode="numeric" placeholder="e.g. 100" value={variant.stock} onChange={e => handleVariantChange(index, 'stock', parseInt(e.target.value, 10) || 0)} className="w-20 p-1 border rounded-md" /></td>
                                 </tr>
                             ))}
                         </tbody>

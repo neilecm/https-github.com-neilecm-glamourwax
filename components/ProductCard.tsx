@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { Product } from '../types';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -19,6 +19,7 @@ interface ProductCardProps {
 const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
     const { addToCart } = useCart();
     const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist();
+    const [addState, setAddState] = useState<'idle' | 'adding' | 'added'>('idle');
 
     const hasVariants = product.variants && product.variants.length > 1;
     const defaultVariant = product.variants?.[0];
@@ -27,8 +28,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
         e.stopPropagation();
         if (hasVariants) {
             onClick(product); // Navigate to detail page
-        } else if (defaultVariant) {
-            addToCart(product, defaultVariant, 1);
+        } else if (defaultVariant && addState === 'idle') {
+            setAddState('adding');
+            setTimeout(() => {
+                addToCart(product, defaultVariant, 1);
+                setAddState('added');
+                setTimeout(() => {
+                    setAddState('idle');
+                }, 1500); // Revert after 1.5 seconds
+            }, 300); // Simulate network delay
         }
     };
 
@@ -57,6 +65,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
 
     const isWishlisted = isInWishlist(product.id);
     const imageUrl = product.imageUrls?.[0] || 'https://placehold.co/600x400?text=No+Image';
+    
+    const getButtonState = () => {
+        if (hasVariants) {
+            return { text: 'View Options', disabled: false, className: 'bg-pink-500 hover:bg-pink-600' };
+        }
+        switch (addState) {
+            case 'adding':
+                return { text: 'Adding...', disabled: true, className: 'bg-pink-400' };
+            case 'added':
+                return { text: 'Added ✓', disabled: true, className: 'bg-green-500' };
+            case 'idle':
+            default:
+                return { text: 'Add to Cart', disabled: !defaultVariant, className: 'bg-pink-500 hover:bg-pink-600 disabled:bg-pink-300' };
+        }
+    };
+
+    const buttonState = getButtonState();
 
   return (
     <div 
@@ -81,10 +106,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
           <span className="text-xl font-bold text-pink-500">{getPriceDisplay()}</span>
           <button 
             onClick={handleActionClick}
-            disabled={!defaultVariant}
-            className="bg-pink-500 text-white px-4 py-2 rounded-full hover:bg-pink-600 transition-colors transform hover:scale-105 disabled:bg-pink-300"
+            disabled={buttonState.disabled}
+            className={`text-white px-4 py-2 rounded-full transition-colors transform hover:scale-105 ${buttonState.className}`}
           >
-            {hasVariants ? 'View Options' : 'Add to Cart'}
+            {buttonState.text}
           </button>
         </div>
       </div>

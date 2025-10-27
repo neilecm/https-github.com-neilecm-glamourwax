@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useWishlist } from '../contexts/WishlistContext';
 import { useCart } from '../contexts/CartContext';
 import type { Product } from '../types';
@@ -11,6 +10,7 @@ interface WishlistViewProps {
 const WishlistView: React.FC<WishlistViewProps> = ({ onProductClick }) => {
   const { wishlistItems, removeFromWishlist } = useWishlist();
   const { addToCart } = useCart();
+  const [addStates, setAddStates] = useState<Record<string, 'idle' | 'adding' | 'added'>>({});
 
   if (wishlistItems.length === 0) {
     return (
@@ -25,12 +25,19 @@ const WishlistView: React.FC<WishlistViewProps> = ({ onProductClick }) => {
     e.stopPropagation();
     const hasVariants = product.variants && product.variants.length > 1;
     const defaultVariant = product.variants?.[0];
+    const addState = addStates[product.id] || 'idle';
 
     if (hasVariants) {
       onProductClick(product);
-    } else if (defaultVariant) {
-      addToCart(product, defaultVariant, 1);
-      removeFromWishlist(product.id);
+    } else if (defaultVariant && addState === 'idle') {
+      setAddStates(prev => ({ ...prev, [product.id]: 'adding' }));
+      setTimeout(() => {
+        addToCart(product, defaultVariant, 1);
+        setAddStates(prev => ({ ...prev, [product.id]: 'added' }));
+        setTimeout(() => {
+          removeFromWishlist(product.id);
+        }, 1000); // Wait 1s before removing from wishlist to show feedback
+      }, 300);
     }
   };
 
@@ -42,6 +49,26 @@ const WishlistView: React.FC<WishlistViewProps> = ({ onProductClick }) => {
             const hasMultipleVariants = item.variants && item.variants.length > 1;
             const isAvailable = item.variants && item.variants.length > 0;
             const price = item.variants?.[0]?.price || 0;
+            const addState = addStates[item.id] || 'idle';
+
+            const getButtonState = () => {
+                if (hasMultipleVariants) {
+                    return { text: 'View Options', disabled: false, className: 'bg-pink-500 hover:bg-pink-600' };
+                }
+                if (!isAvailable) {
+                    return { text: 'Unavailable', disabled: true, className: 'bg-gray-300' };
+                }
+                switch (addState) {
+                    case 'adding':
+                        return { text: 'Adding...', disabled: true, className: 'bg-pink-400' };
+                    case 'added':
+                        return { text: 'Added ✓', disabled: true, className: 'bg-green-500' };
+                    case 'idle':
+                    default:
+                        return { text: 'Move to Cart', disabled: false, className: 'bg-pink-500 hover:bg-pink-600' };
+                }
+            };
+            const buttonState = getButtonState();
 
             return (
               <div 
@@ -72,10 +99,10 @@ const WishlistView: React.FC<WishlistViewProps> = ({ onProductClick }) => {
                     </span>
                     <button 
                       onClick={(e) => handleAction(e, item)}
-                      disabled={!isAvailable}
-                      className="bg-pink-500 text-white px-3 py-1.5 rounded-full text-sm hover:bg-pink-600 transition-colors disabled:bg-gray-300"
+                      disabled={buttonState.disabled}
+                      className={`text-white px-3 py-1.5 rounded-full text-sm transition-colors ${buttonState.className}`}
                     >
-                      {hasMultipleVariants ? 'View Options' : 'Add to Cart'}
+                      {buttonState.text}
                     </button>
                   </div>
                 </div>
