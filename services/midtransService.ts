@@ -1,5 +1,5 @@
-
 import type { Order, CustomerDetails, CartItem } from '../types';
+import { supabase } from './supabase';
 
 interface MidtransTransactionDetails {
   order_id: string;
@@ -47,33 +47,54 @@ export const midtransService = {
       },
     };
 
-    console.log("Mock Midtrans: Creating transaction with payload:", payload);
+    console.log("Invoking Supabase function 'create-midtrans-transaction' with payload:", payload);
 
-    // In a real app, you'd send this payload to your backend, which then communicates with Midtrans.
-    // The backend would return a transaction token.
-    // Here, we'll just simulate that token.
-    const mockTransactionToken = `mock-token-${orderId}`;
-    
-    return new Promise(resolve => {
-        setTimeout(() => {
-            resolve(mockTransactionToken);
-        }, 500);
+    const { data, error } = await supabase.functions.invoke('create-midtrans-transaction', {
+        body: payload,
     });
+    
+    if (error) {
+        console.error('Error creating Midtrans transaction:', error);
+        // Try to provide a more specific error message from the function response
+        const errorMessage = error.context?.error_cause?.error || `Failed to create payment transaction. Supabase function error: ${error.message}`;
+        throw new Error(errorMessage);
+    }
+    
+    if (!data?.token) {
+        console.error('Supabase function did not return a Midtrans token.', data);
+        throw new Error('Could not retrieve payment token. Please try again.');
+    }
+
+    console.log("Successfully received Midtrans token from Supabase function.");
+    return data.token;
   },
 
-  openPaymentGateway: (token: string, onSuccess: () => void, onPending: () => void, onError: () => void, onClose: () => void) => {
-    // This function will simulate the Snap popup.
-    // It doesn't use the token since we are not connecting to Midtrans.
-    console.log("Simulating Midtrans Snap popup...");
-
-    // In a real app, you would call window.snap.pay()
-    // window.snap.pay(token, { onSuccess, onPending, onError, onClose });
+  openPaymentGateway: (token: string, onSuccess: (result: any) => void, onPending: (result: any) => void, onError: (result: any) => void, onClose: () => void) => {
+    if (!window.snap) {
+        console.error('Midtrans Snap.js is not loaded.');
+        onError({ status_message: 'Payment gateway is not available. Please refresh the page.'});
+        return;
+    }
     
-    // For this mock, we'll use a timeout to simulate the user taking action on the popup.
-    // We will simulate a success after a few seconds.
-    setTimeout(() => {
-        console.log("Simulating successful payment.");
-        onSuccess();
-    }, 3000); 
+    console.log("Opening Midtrans Snap with token:", token);
+    
+    window.snap.pay(token, {
+        onSuccess: (result: any) => {
+            console.log('Midtrans payment success:', result);
+            onSuccess(result);
+        },
+        onPending: (result: any) => {
+            console.log('Midtrans payment pending:', result);
+            onPending(result);
+        },
+        onError: (result: any) => {
+            console.error('Midtrans payment error:', result);
+            onError(result);
+        },
+        onClose: () => {
+            console.log('Midtrans Snap popup closed by user.');
+            onClose();
+        }
+    });
   }
 };

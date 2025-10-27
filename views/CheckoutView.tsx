@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { rajaOngkirService } from '../services/rajaOngkirService';
@@ -166,24 +165,26 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess }) => {
         
         midtransService.openPaymentGateway(
             token,
-            async () => { // onSuccess
-                console.log("Payment successful, creating order...");
+            async (result) => { // onSuccess
+                console.log("Payment successful, creating order...", result);
+                // We use the transaction result to enrich our order data if needed
                 const order = await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, cartTotal + selectedShipping.cost);
                 clearCart();
                 onOrderSuccess(order.id);
             },
-            () => { // onPending
-                console.log("Payment pending...");
-                setError("Your payment is pending. We will update you once it's confirmed.");
+            (result) => { // onPending
+                console.log("Payment pending...", result);
+                setError(`Your payment is pending (Order ID: ${result.order_id}). We will update you once it's confirmed.`);
                 setIsLoading(prev => ({ ...prev, payment: false }));
             },
-            () => { // onError
-                console.log("Payment failed.");
-                setError("Payment failed. Please try again or use a different payment method.");
+            (result) => { // onError
+                console.log("Payment failed.", result);
+                setError(`Payment failed: ${result.status_message || 'Please try again or use a different payment method.'}`);
                 setIsLoading(prev => ({ ...prev, payment: false }));
             },
             () => { // onClose
                 console.log("Payment popup closed.");
+                // User closed the popup without completing payment
                 setIsLoading(prev => ({ ...prev, payment: false }));
             }
         );
