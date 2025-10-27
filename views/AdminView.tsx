@@ -1,7 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabaseService } from '../services/supabaseService';
+import { komerceService } from '../services/komerceService';
 import type { Product, FullOrder, OrderStatus } from '../types';
 import Spinner from '../components/Spinner';
+
+// #region Helper Functions
+const base64ToBlob = (base64: string, contentType = '', sliceSize = 512) => {
+  const byteCharacters = atob(base64);
+  const byteArrays = [];
+
+  for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+    const slice = byteCharacters.slice(offset, offset + sliceSize);
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    byteArrays.push(byteArray);
+  }
+
+  return new Blob(byteArrays, { type: contentType });
+};
+
+// #endregion
 
 // #region Child Components for AdminView
 
@@ -36,6 +57,7 @@ const OrdersView: React.FC = () => {
     const [orders, setOrders] = useState<FullOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -54,17 +76,40 @@ const OrdersView: React.FC = () => {
         fetchOrders();
     }, [fetchOrders]);
 
-    const handleArrangePickup = async (orderId: string) => {
+    const handleArrangePickup = async (order: FullOrder) => {
+        setActionLoading(prev => ({ ...prev, [order.id]: true }));
+        setError(null);
         try {
-            await supabaseService.updateOrderStatus(orderId, 'shipped');
-            fetchOrders(); // Refresh the list
+            const result = await komerceService.arrangePickup(order.order_number);
+            alert(`Pickup arranged successfully! AWB: ${result.awb}`);
+            await fetchOrders(); // Refresh the list to show new status and AWB
         } catch (err: any) {
-            setError(err.message || "Failed to update order status.");
+            setError(err.message || "Failed to arrange pickup.");
+        } finally {
+            setActionLoading(prev => ({ ...prev, [order.id]: false }));
         }
     };
     
-    const handlePrintWaybill = () => {
-        window.print();
+    const handlePrintWaybill = async (order: FullOrder) => {
+        setActionLoading(prev => ({ ...prev, [order.id]: true }));
+        setError(null);
+        try {
+            const { base64 } = await komerceService.printWaybill(order.order_number);
+            const blob = base64ToBlob(base64, 'application/pdf');
+            const url = URL.createObjectURL(blob);
+            const printWindow = window.open(url, '_blank');
+            if(printWindow) {
+                printWindow.onload = () => {
+                    printWindow.print();
+                }
+            } else {
+                throw new Error("Could not open print window. Please disable pop-up blockers.");
+            }
+        } catch(err: any) {
+            setError(err.message || "Failed to print waybill.");
+        } finally {
+            setActionLoading(prev => ({ ...prev, [order.id]: false }));
+        }
     };
     
     const getShippingDeadline = (order: FullOrder): Date | null => {
@@ -85,7 +130,7 @@ const OrdersView: React.FC = () => {
     };
 
     if (isLoading) return <Spinner />;
-    if (error) return <div className="text-red-500 bg-red-100 p-4 rounded-lg">{error}</div>;
+    if (error) return <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>;
 
     return (
         <div>
@@ -96,18 +141,21 @@ const OrdersView: React.FC = () => {
                         <tr>
                             <th className="py-3 px-4 text-left font-semibold">Client Name</th>
                             <th className="py-3 px-4 text-left font-semibold">Products Purchased</th>
-                            <th className="py-3 px-4 text-left font-semibold">Total Paid</th>
                             <th className="py-3 px-4 text-left font-semibold">Status & Countdown</th>
-                            <th className="py-3 px-4 text-left font-semibold">Shipping Channel</th>
+                            <th className="py-3 px-4 text-left font-semibold">AWB / Tracking</th>
                             <th className="py-3 px-4 text-left font-semibold">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {orders.map(order => {
                             const deadline = getShippingDeadline(order);
+                            const isLoadingAction = actionLoading[order.id];
                             return (
                                 <tr key={order.id} className="border-b hover:bg-gray-50 align-top">
-                                    <td className="py-3 px-4">{order.customers ? `${order.customers.first_name} ${order.customers.last_name}` : 'N/A'}</td>
+                                    <td className="py-3 px-4">
+                                        <div className="font-medium">{order.customers ? `${order.customers.first_name} ${order.customers.last_name}` : 'N/A'}</div>
+                                        <div className="text-gray-500">Total: Rp{order.total_amount.toLocaleString('id-ID')}</div>
+                                    </td>
                                     <td className="py-3 px-4">
                                       <ul className="space-y-1">
                                         {order.order_items.map(item => (
@@ -117,28 +165,32 @@ const OrdersView: React.FC = () => {
                                         ))}
                                       </ul>
                                     </td>
-                                    <td className="py-3 px-4 font-medium">Rp{order.total_amount.toLocaleString('id-ID')}</td>
                                     <td className="py-3 px-4">
-                                        <span className={`capitalize px-2 py-1 text-xs font-semibold rounded-full ${order.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-800'}`}>
+                                        <span className={`capitalize px-2 py-1 text-xs font-semibold rounded-full ${
+                                            order.status === 'paid' ? 'bg-blue-100 text-blue-800' : 
+                                            order.status === 'shipped' ? 'bg-green-100 text-green-800' :
+                                            'bg-gray-200 text-gray-800'
+                                        }`}>
                                             {order.status.replace('_', ' ')}
                                         </span>
                                         {deadline && <CountdownTimer deadline={deadline} />}
                                     </td>
-                                    <td className="py-3 px-4">{order.shipping_provider} ({order.shipping_service})</td>
+                                    <td className="py-3 px-4 font-mono text-xs">{order.awb_number || 'N/A'}</td>
                                     <td className="py-3 px-4">
                                         <div className="flex flex-col items-start gap-2">
                                             <button 
-                                              onClick={() => handleArrangePickup(order.id)} 
-                                              disabled={order.status !== 'paid'} 
-                                              className="bg-green-100 text-green-700 px-3 py-1 rounded-md text-xs font-semibold hover:bg-green-200 disabled:bg-gray-100 disabled:text-gray-400 transition-colors"
+                                              onClick={() => handleArrangePickup(order)} 
+                                              disabled={order.status !== 'paid' || isLoadingAction} 
+                                              className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors w-32 text-center"
                                             >
-                                              Arrange Pick Up
+                                              {isLoadingAction ? <Spinner /> : 'Arrange Pickup'}
                                             </button>
                                             <button 
-                                              onClick={handlePrintWaybill} 
-                                              className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-200 transition-colors"
+                                              onClick={() => handlePrintWaybill(order)}
+                                              disabled={order.status !== 'shipped' || isLoadingAction}
+                                              className="bg-indigo-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-indigo-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed w-32 text-center"
                                             >
-                                              Print Waybill
+                                              {isLoadingAction ? <Spinner /> : 'Print Waybill'}
                                             </button>
                                         </div>
                                     </td>

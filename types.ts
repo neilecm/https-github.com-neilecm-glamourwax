@@ -72,6 +72,7 @@ export interface FullOrder {
   created_at: string;
   shipping_provider: string;
   shipping_service: string;
+  awb_number: string | null; // Added for Komerce AWB
   customers: Customer | null;
   order_items: OrderItemWithProduct[];
 }

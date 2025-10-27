@@ -137,6 +137,7 @@ export const supabaseService = {
         created_at,
         shipping_provider,
         shipping_service,
+        awb_number,
         customers (*),
         order_items (
           quantity,
