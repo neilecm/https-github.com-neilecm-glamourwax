@@ -1,6 +1,6 @@
 
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { CartProvider } from './contexts/CartContext';
 import { WishlistProvider } from './contexts/WishlistContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -52,17 +52,30 @@ export type AppView =
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
+  const [intendedView, setIntendedView] = useState<AppView | null>(null); // State to hold desired view pre-login
   const { session, loading } = useAuth();
 
   const navigate = useCallback((view: AppView) => {
     // Protected route logic
     if (view.name === View.TUTORIAL && !session) {
+        setIntendedView(view); // Store the view the user wanted to access
         setCurrentView({ name: View.AUTH });
     } else {
         setCurrentView(view);
     }
     window.scrollTo(0, 0);
   }, [session]);
+
+  // This effect handles redirection after a successful login.
+  useEffect(() => {
+    // When the session becomes available (user logs in) AND they are on the AuthView,
+    // redirect them to their originally intended page, or the tutorial as a default.
+    if (session && currentView.name === View.AUTH) {
+      navigate(intendedView || { name: View.TUTORIAL });
+      setIntendedView(null); // Clean up
+    }
+  }, [session, currentView.name, navigate, intendedView]);
+
 
   const renderView = () => {
     if (loading) {
@@ -97,10 +110,11 @@ const AppContent: React.FC = () => {
       case View.CONTACT:
         return <ContactView />;
       case View.AUTH:
-        return <AuthView onLoginSuccess={() => navigate({ name: View.TUTORIAL })} />;
+        // The onLoginSuccess prop no longer needs to handle navigation, as the useEffect does it.
+        return <AuthView onLoginSuccess={() => {}} />;
       case View.TUTORIAL:
         // Double check auth status before rendering
-        return session ? <TutorialView /> : <AuthView onLoginSuccess={() => navigate({ name: View.TUTORIAL })} />;
+        return session ? <TutorialView /> : <AuthView onLoginSuccess={() => {}} />;
       default:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
     }
