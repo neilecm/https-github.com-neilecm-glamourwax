@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { CartProvider } from './contexts/CartContext';
 import { WishlistProvider } from './contexts/WishlistContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Header from './components/Header';
 import HomeView from './views/HomeView';
 import ProductDetailView from './views/ProductDetailView';
@@ -12,10 +13,13 @@ import OrderConfirmationView from './views/OrderConfirmationView';
 import AdminView from './views/AdminView';
 import WishlistView from './views/WishlistView';
 import Footer from './components/Footer';
-import type { Product } from './types';
 import PaymentPendingView from './views/PaymentPendingView';
 import PaymentFailedView from './views/PaymentFailedView';
 import ContactView from './views/ContactView';
+import AuthView from './views/AuthView';
+import TutorialView from './views/TutorialView';
+import Spinner from './components/Spinner';
+
 
 export enum View {
   HOME,
@@ -28,6 +32,8 @@ export enum View {
   FAILED,
   WISHLIST,
   CONTACT,
+  AUTH,
+  TUTORIAL,
 }
 
 export type AppView =
@@ -40,17 +46,29 @@ export type AppView =
   | { name: View.PENDING; orderId: string }
   | { name: View.FAILED; message: string }
   | { name: View.WISHLIST }
-  | { name: View.CONTACT };
+  | { name: View.CONTACT }
+  | { name: View.AUTH }
+  | { name: View.TUTORIAL };
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
+  const { session, loading } = useAuth();
 
   const navigate = useCallback((view: AppView) => {
-    setCurrentView(view);
+    // Protected route logic
+    if (view.name === View.TUTORIAL && !session) {
+        setCurrentView({ name: View.AUTH });
+    } else {
+        setCurrentView(view);
+    }
     window.scrollTo(0, 0);
-  }, []);
+  }, [session]);
 
   const renderView = () => {
+    if (loading) {
+        return <div className="pt-32"><Spinner /></div>;
+    }
+    
     switch (currentView.name) {
       case View.HOME:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
@@ -78,23 +96,37 @@ const App: React.FC = () => {
         return <WishlistView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
       case View.CONTACT:
         return <ContactView />;
+      case View.AUTH:
+        return <AuthView onLoginSuccess={() => navigate({ name: View.TUTORIAL })} />;
+      case View.TUTORIAL:
+        // Double check auth status before rendering
+        return session ? <TutorialView /> : <AuthView onLoginSuccess={() => navigate({ name: View.TUTORIAL })} />;
       default:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
     }
   };
 
   return (
-    <CartProvider>
-      <WishlistProvider>
-        <div className="bg-gray-50 min-h-screen text-gray-800">
-          <Header onNavigate={navigate} />
-          <main className="container mx-auto px-4 py-8 pt-24">
-            {renderView()}
-          </main>
-          <Footer onNavigate={navigate} />
-        </div>
-      </WishlistProvider>
-    </CartProvider>
+    <div className="bg-gray-50 min-h-screen text-gray-800">
+      <Header onNavigate={navigate} />
+      <main className="container mx-auto px-4 py-8 pt-24">
+        {renderView()}
+      </main>
+      <Footer onNavigate={navigate} />
+    </div>
+  );
+}
+
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <CartProvider>
+        <WishlistProvider>
+          <AppContent />
+        </WishlistProvider>
+      </CartProvider>
+    </AuthProvider>
   );
 };
 
