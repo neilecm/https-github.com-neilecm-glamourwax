@@ -1,6 +1,3 @@
-
-
-
 import React from 'react';
 import { AppView, View } from '../App';
 
@@ -20,7 +17,7 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <div>
             <h3 className="font-semibold text-gray-700 mb-4">Quick Links</h3>
             <ul>
-              <li><button onClick={() => alert('About Us page coming soon!')} className="text-gray-600 hover:text-pink-500">About Us</button></li>
+              <li><button onClick={() => onNavigate({ name: View.ABOUT_US })} className="text-gray-600 hover:text-pink-500">About Us</button></li>
               <li><button onClick={() => onNavigate({ name: View.CONTACT })} className="text-gray-600 hover:text-pink-500">Contact</button></li>
               <li><button onClick={() => alert('FAQ page coming soon!')} className="text-gray-600 hover:text-pink-500">FAQ</button></li>
             </ul>
@@ -30,6 +27,8 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <div className="flex justify-center md:justify-start space-x-4">
               <a href="#" className="text-gray-600 hover:text-pink-500">Instagram</a>
               <a href="#" className="text-gray-600 hover:text-pink-500">Facebook</a>
+              <a href="#" className="text-gray-600 hover:text-pink-500">TikTok</a>
+              <a href="#" className="text-gray-600 hover:text-pink-500">YouTube</a>
               <a href="#" className="text-gray-600 hover:text-pink-500">Twitter</a>
             </div>
           </div>

@@ -47,10 +47,22 @@ const TutorialStep: React.FC<{ number: string, title: string, children: React.Re
 // Chat Message Component
 const ChatMessage: React.FC<{ message: { role: 'user' | 'model'; text: string } }> = ({ message }) => {
     const isUser = message.role === 'user';
+    // Basic markdown for bolding
+    const formatText = (text: string) => {
+        return text.split('\n').map((line, i) => (
+            <span key={i}>
+                {line.split('**').map((part, j) => 
+                    j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+                )}
+                <br />
+            </span>
+        ));
+    };
+
     return (
         <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-            <div className={`max-w-md px-4 py-2 rounded-lg shadow ${isUser ? 'bg-pink-500 text-white' : 'bg-gray-200 text-gray-800'}`}>
-                <p>{message.text}</p>
+            <div className={`max-w-md px-4 py-3 rounded-lg shadow ${isUser ? 'bg-pink-500 text-white' : 'bg-gray-200 text-gray-800'}`}>
+                <p className="whitespace-pre-wrap">{formatText(message.text)}</p>
             </div>
         </div>
     );
@@ -59,7 +71,28 @@ const ChatMessage: React.FC<{ message: { role: 'user' | 'model'; text: string } 
 
 const AITutor: React.FC = () => {
     const [prompt, setPrompt] = useState('');
-    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model'; text: string }[]>([]);
+    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model'; text: string }[]>([
+        {
+            role: 'model',
+            text: "Welcome, Gorgeous! I'm Cera, your personal AI waxing tutor. I'm here to help you get salon-perfect results at home."
+        },
+        {
+            role: 'model',
+            text: "Here's a quick 3-step sneak peek from our Cera Brasileira tutorial to get you started:"
+        },
+        {
+            role: 'model',
+            text: "✨ **Step 1: Prep**\nStart with clean, dry skin. Make sure your hair is about the length of a grain of rice. No lotions or oils!"
+        },
+        {
+            role: 'model',
+            text: "🍯 **Step 2: Apply**\nHeat your wax to a thick, honey-like consistency. Apply a layer in the direction of hair growth, creating a small 'lip' at the end to grab onto."
+        },
+        {
+            role: 'model',
+            text: "🚀 **Step 3: Pull!**\nHold your skin taut with one hand. With the other, grab the lip and pull the strip back quickly, parallel to your skin (not straight up!).\n\nNow, what can I help you with?"
+        }
+    ]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -121,7 +154,7 @@ const AITutor: React.FC = () => {
             <h2 className="text-3xl font-bold text-center mb-4">AI Waxing Tutor</h2>
             <p className="text-center text-gray-600 mb-6">Your personal waxing expert. Ask me anything!</p>
             <div className="max-w-2xl mx-auto">
-                <div ref={chatContainerRef} className="h-80 overflow-y-auto p-4 border rounded-lg bg-white mb-4">
+                <div ref={chatContainerRef} className="h-96 overflow-y-auto p-4 border rounded-lg bg-white mb-4">
                     {chatHistory.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
                             <p className="text-gray-400">Ask a question to get started, e.g., "How hot should the wax be?"</p>

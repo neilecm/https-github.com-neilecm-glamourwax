@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { CartProvider } from './contexts/CartContext';
 import { WishlistProvider } from './contexts/WishlistContext';
@@ -18,6 +17,7 @@ import ContactView from './views/ContactView';
 import AuthView from './views/AuthView';
 import TutorialView from './views/TutorialView';
 import Spinner from './components/Spinner';
+import AboutUsView from './views/AboutUsView';
 
 
 export enum View {
@@ -33,6 +33,7 @@ export enum View {
   CONTACT,
   AUTH,
   TUTORIAL,
+  ABOUT_US,
 }
 
 export type AppView =
@@ -47,6 +48,7 @@ export type AppView =
   | { name: View.WISHLIST }
   | { name: View.CONTACT }
   | { name: View.AUTH }
+  | { name: View.ABOUT_US }
   | { name: View.TUTORIAL };
 
 const AppContent: React.FC = () => {
@@ -129,6 +131,8 @@ const AppContent: React.FC = () => {
       case View.TUTORIAL:
         // Double check auth status before rendering
         return session ? <TutorialView /> : <AuthView onLoginSuccess={() => {}} />;
+      case View.ABOUT_US:
+        return <AboutUsView />;
       default:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
     }
