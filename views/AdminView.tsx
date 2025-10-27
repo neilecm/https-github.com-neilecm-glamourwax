@@ -343,7 +343,7 @@ const ProductsView: React.FC<{
                     {products.map((product) => (
                         <tr key={product.id} className="border-b hover:bg-gray-50">
                         <td className="py-3 px-4 flex items-center">
-                            <img src={product.imageUrl} alt={product.name} className="w-12 h-12 object-cover rounded-md mr-4" />
+                            <img src={product.imageUrls?.[0] || 'https://placehold.co/100x100?text=No+Img'} alt={product.name} className="w-12 h-12 object-cover rounded-md mr-4" />
                             <span>{product.name}</span>
                         </td>
                         <td className="py-3 px-4">
@@ -370,12 +370,113 @@ const ProductsView: React.FC<{
     );
 };
 
+const MediaUploader: React.FC<{
+    urls: (string | null)[];
+    onUrlsChange: (newUrls: string[]) => void;
+    maxFiles: number;
+    fileType: 'image' | 'video';
+    className?: string;
+}> = ({ urls, onUrlsChange, maxFiles, fileType, className }) => {
+    const [isUploading, setIsUploading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = React.useRef<HTMLInputElement>(null);
+
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+
+        if (urls.length + files.length > maxFiles) {
+            setError(`You can only upload a maximum of ${maxFiles} ${fileType}s.`);
+            return;
+        }
+
+        setIsUploading(true);
+        setError(null);
+        try {
+            // FIX: Explicitly type the `file` argument in the map function as `File`.
+            // The type inference was failing, causing `file` to be treated as `unknown`.
+            const uploadPromises = Array.from(files).map((file: File) => supabaseService.uploadProductMedia(file));
+            const newUrls = await Promise.all(uploadPromises);
+            onUrlsChange([...(urls.filter(u => u) as string[]), ...newUrls]);
+        } catch (err: any) {
+            setError(err.message || `Failed to upload ${fileType}.`);
+        } finally {
+            setIsUploading(false);
+            if (inputRef.current) {
+                inputRef.current.value = ''; // Reset file input
+            }
+        }
+    };
+
+    const handleRemove = (urlToRemove: string) => {
+        onUrlsChange(urls.filter(url => url !== urlToRemove) as string[]);
+    };
+    
+    const slots = Array.from({ length: maxFiles }, (_, i) => urls[i] || null);
+
+    return (
+        <div className={className}>
+            {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                {slots.map((url, index) => (
+                    <div
+                        key={index}
+                        className={`relative aspect-square border-2 border-dashed rounded-lg flex items-center justify-center transition-colors
+                            ${url ? 'border-gray-300' : 'border-gray-300 hover:border-pink-400 bg-gray-50'}`
+                        }
+                    >
+                        {url ? (
+                            <>
+                                {fileType === 'image' ? (
+                                    <img src={url} alt={`Product media ${index + 1}`} className="w-full h-full object-cover rounded-md" />
+                                ) : (
+                                    <video src={url} className="w-full h-full object-cover rounded-md" controls />
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemove(url)}
+                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center text-sm font-bold hover:bg-red-600"
+                                >
+                                    &times;
+                                </button>
+                            </>
+                        ) : (
+                            !urls.some(Boolean) || urls.length < maxFiles ? (
+                                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-gray-500">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 4v16m8-8H4" /></svg>
+                                    <span className="text-xs mt-1">Add {fileType}</span>
+                                    <input
+                                        ref={inputRef}
+                                        type="file"
+                                        className="hidden"
+                                        accept={`${fileType}/*`}
+                                        multiple={maxFiles > 1}
+                                        onChange={handleFileChange}
+                                        disabled={isUploading || urls.length >= maxFiles}
+                                    />
+                                </label>
+                            ) : null
+                        )}
+                        {isUploading && (
+                            <div className="absolute inset-0 bg-white/70 flex items-center justify-center"><Spinner /></div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+
 type FormState = Omit<Product, 'id' | 'createdAt'>;
-const initialFormState: FormState = { name: '', price: 0, category: '', imageUrl: '', longDescription: '', weight: 0 };
+const initialFormState: FormState = { name: '', price: 0, category: '', imageUrls: [], videoUrl: null, longDescription: '', weight: 0 };
+
+type ProductFormSection = 'basic' | 'description' | 'sales' | 'shipping' | 'others';
 
 const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> = ({ product, onFinish }) => {
     const [formState, setFormState] = useState<FormState>(initialFormState);
     const [error, setError] = useState<string | null>(null);
+    const [activeSection, setActiveSection] = useState<ProductFormSection>('basic');
 
     useEffect(() => {
         if (product) {
@@ -383,7 +484,8 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                 name: product.name,
                 price: product.price,
                 category: product.category,
-                imageUrl: product.imageUrl,
+                imageUrls: product.imageUrls || [],
+                videoUrl: product.videoUrl || null,
                 longDescription: product.longDescription,
                 weight: product.weight,
             });
@@ -400,6 +502,11 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+        if (formState.imageUrls.length === 0) {
+            setError("Please upload at least one product image.");
+            return;
+        }
+
         try {
             if (product) {
                 await supabaseService.updateProduct(product.id, formState);
@@ -412,22 +519,95 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
         }
     };
     
+    const sections: { key: ProductFormSection; label: string }[] = [
+        { key: 'basic', label: 'Basic Information' },
+        { key: 'description', label: 'Description' },
+        { key: 'sales', label: 'Sales Information' },
+        { key: 'shipping', label: 'Shipping' },
+        { key: 'others', label: 'Others' },
+    ];
+
     return (
         <div className="p-6 bg-gray-50 rounded-lg border">
             <h2 className="text-2xl font-semibold mb-4">{product ? 'Edit Product' : 'Add New Product'}</h2>
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg mb-4">{error}</div>}
-            <form onSubmit={handleSubmit} className="space-y-4">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input name="name" placeholder="Product Name" value={formState.name} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
-                    <input type="number" name="price" placeholder="Price (IDR)" value={formState.price} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
-                    <input name="category" placeholder="Category" value={formState.category} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
-                    <input type="number" name="weight" placeholder="Weight (grams)" value={formState.weight} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
+            
+            <div className="flex border-b mb-6 flex-wrap">
+                {sections.map(({ key, label }) => (
+                    <button
+                        key={key}
+                        type="button"
+                        onClick={() => setActiveSection(key)}
+                        className={`px-4 py-2 font-medium text-sm transition-colors ${
+                            activeSection === key
+                            ? 'border-b-2 border-pink-500 text-pink-600'
+                            : 'text-gray-500 hover:text-pink-600'
+                        }`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            <form onSubmit={handleSubmit}>
+                <div className="min-h-[250px]">
+                    {activeSection === 'basic' && (
+                        <div className="space-y-6 animate-fadeIn">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input name="name" placeholder="Product Name" value={formState.name} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
+                                <input name="category" placeholder="Category" value={formState.category} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Product Images (up to 5)</label>
+                                <MediaUploader 
+                                    urls={formState.imageUrls}
+                                    onUrlsChange={(newUrls) => setFormState(prev => ({...prev, imageUrls: newUrls}))}
+                                    maxFiles={5}
+                                    fileType="image"
+                                />
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Product Video (optional)</label>
+                                <MediaUploader 
+                                    urls={formState.videoUrl ? [formState.videoUrl] : []}
+                                    onUrlsChange={(newUrls) => setFormState(prev => ({...prev, videoUrl: newUrls[0] || null}))}
+                                    maxFiles={1}
+                                    fileType="video"
+                                />
+                            </div>
+                        </div>
+                    )}
+                    {activeSection === 'description' && (
+                        <div className="animate-fadeIn">
+                            <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} onChange={handleInputChange} required rows={6} className="p-3 border rounded-md w-full" />
+                        </div>
+                    )}
+                    {activeSection === 'sales' && (
+                        <div className="space-y-4 animate-fadeIn">
+                            <label className="block">
+                                <span className="text-gray-700">Price (IDR)</span>
+                                <input type="number" name="price" placeholder="Price in IDR" value={formState.price} onChange={handleInputChange} required className="p-3 border rounded-md w-full mt-1" />
+                            </label>
+                        </div>
+                    )}
+                    {activeSection === 'shipping' && (
+                        <div className="space-y-4 animate-fadeIn">
+                            <label className="block">
+                                <span className="text-gray-700">Weight (grams)</span>
+                                <input type="number" name="weight" placeholder="Weight in grams" value={formState.weight} onChange={handleInputChange} required className="p-3 border rounded-md w-full mt-1" />
+                            </label>
+                        </div>
+                    )}
+                    {activeSection === 'others' && (
+                        <div className="text-center p-8 text-gray-500 animate-fadeIn">
+                            <p>Additional fields and options will be available here in the future.</p>
+                        </div>
+                    )}
                 </div>
-                <input name="imageUrl" placeholder="Image URL" value={formState.imageUrl} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
-                <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} onChange={handleInputChange} required rows={4} className="p-3 border rounded-md w-full" />
-                <div className="flex justify-end gap-4">
+
+                <div className="flex justify-end gap-4 mt-6 pt-6 border-t">
                     <button type="button" onClick={onFinish} className="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400">Cancel</button>
-                    <button type="submit" className="bg-pink-500 text-white px-6 py-2 rounded-lg hover:bg-pink-600">{product ? 'Update' : 'Save'}</button>
+                    <button type="submit" className="bg-pink-500 text-white px-6 py-2 rounded-lg hover:bg-pink-600">{product ? 'Update Product' : 'Save Product'}</button>
                 </div>
             </form>
         </div>

@@ -91,6 +91,37 @@ export const supabaseService = {
     }
   },
 
+  // Upload a file to the 'product-media' storage bucket.
+  // NOTE: You must create a bucket named 'product-media' in your Supabase project
+  // and set its policies to allow public reads and authenticated uploads.
+  async uploadProductMedia(file: File): Promise<string> {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random()}.${fileExt}`;
+    const filePath = `public/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('product-media')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Error uploading file:', uploadError);
+      throw new Error(`Failed to upload file. Supabase error: ${uploadError.message}`);
+    }
+
+    const { data } = supabase.storage
+      .from('product-media')
+      .getPublicUrl(filePath);
+
+    if (!data.publicUrl) {
+      throw new Error("Could not get public URL for the uploaded file.");
+    }
+
+    return data.publicUrl;
+  },
+
   // Create an order by invoking the Supabase Edge Function
   async createOrder(
     customerDetails: CustomerDetails,

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
 import type { CartItem } from '../types';
@@ -25,7 +24,7 @@ const CartView: React.FC<CartViewProps> = ({ onCheckout }) => {
       <div className="divide-y divide-gray-200">
         {cartItems.map(item => (
           <div key={item.id} className="flex items-center py-4">
-            <img src={item.imageUrl} alt={item.name} className="w-24 h-24 object-cover rounded-md" />
+            <img src={item.imageUrls?.[0] || 'https://placehold.co/100x100?text=No+Img'} alt={item.name} className="w-24 h-24 object-cover rounded-md" />
             <div className="flex-grow ml-4">
               <h2 className="font-semibold">{item.name}</h2>
               <p className="text-sm text-gray-500">Rp{item.price.toLocaleString('id-ID')}</p>

@@ -5,7 +5,8 @@ export interface Product {
   name: string;
   price: number;
   category: string;
-  imageUrl: string;
+  imageUrls: string[];
+  videoUrl: string | null;
   longDescription: string;
   weight: number; // in grams
   createdAt?: string;

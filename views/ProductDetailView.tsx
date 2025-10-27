@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import type { Product } from '../types';
@@ -52,13 +51,15 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
   }
 
   const isWishlisted = isInWishlist(product.id);
+  const imageUrl = product.imageUrls?.[0] || 'https://placehold.co/800x600?text=No+Image';
+
 
   return (
     <div className="bg-white p-8 rounded-lg shadow-xl">
       <button onClick={onBack} className="mb-6 text-pink-500 hover:text-pink-700">&larr; Back to Shop</button>
       <div className="flex flex-col md:flex-row gap-8">
         <div className="md:w-1/2">
-          <img src={product.imageUrl} alt={product.name} className="w-full h-auto object-cover rounded-lg" />
+          <img src={imageUrl} alt={product.name} className="w-full h-auto object-cover rounded-lg" />
         </div>
         <div className="md:w-1/2">
           <h1 className="text-4xl font-bold mb-2">{product.name}</h1>

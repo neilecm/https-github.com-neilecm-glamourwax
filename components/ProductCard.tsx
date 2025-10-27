@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { Product } from '../types';
 import { useCart } from '../contexts/CartContext';
@@ -36,6 +35,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
     };
 
     const isWishlisted = isInWishlist(product.id);
+    const imageUrl = product.imageUrls?.[0] || 'https://placehold.co/600x400?text=No+Image';
 
   return (
     <div 
@@ -43,7 +43,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
       onClick={() => onClick(product)}
     >
       <div className="relative h-64">
-        <img className="w-full h-full object-cover" src={product.imageUrl} alt={product.name} />
+        <img className="w-full h-full object-cover" src={imageUrl} alt={product.name} />
         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300"></div>
         <button 
           onClick={handleWishlistToggle} 
