@@ -469,7 +469,7 @@ const MediaUploader: React.FC<{
 
 
 type FormState = Omit<Product, 'id' | 'createdAt'>;
-const initialFormState: FormState = { name: '', price: 0, category: '', imageUrls: [], videoUrl: null, longDescription: '', weight: 0 };
+const initialFormState: FormState = { name: '', price: 0, category: '', imageUrls: [], videoUrl: null, longDescription: '', weight: 0, gtin: '', sku: '' };
 
 type ProductFormSection = 'basic' | 'description' | 'sales' | 'shipping' | 'others';
 
@@ -488,6 +488,8 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                 videoUrl: product.videoUrl || null,
                 longDescription: product.longDescription,
                 weight: product.weight,
+                gtin: product.gtin,
+                sku: product.sku || '',
             });
         } else {
             setFormState(initialFormState);
@@ -497,6 +499,14 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormState((prev) => ({...prev, [name]: name === 'price' || name === 'weight' ? parseFloat(value) || 0 : value }));
+    };
+    
+    const handleGtinCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const isChecked = e.target.checked;
+        setFormState(prev => ({
+            ...prev,
+            gtin: isChecked ? null : ''
+        }));
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -558,6 +568,31 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                                 <input name="category" placeholder="Category" value={formState.category} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
                             </div>
                             <div>
+                                <label htmlFor="gtin" className="block text-sm font-medium text-gray-700">GTIN (Global Trade Item Number)</label>
+                                <input
+                                    type="text"
+                                    id="gtin"
+                                    name="gtin"
+                                    placeholder="e.g., 9780201379624"
+                                    value={formState.gtin ?? ''}
+                                    onChange={handleInputChange}
+                                    disabled={formState.gtin === null}
+                                    className="p-3 mt-1 border rounded-md w-full disabled:bg-gray-200 disabled:cursor-not-allowed"
+                                />
+                                <div className="flex items-center mt-2">
+                                    <input
+                                        type="checkbox"
+                                        id="no-gtin"
+                                        checked={formState.gtin === null}
+                                        onChange={handleGtinCheckboxChange}
+                                        className="h-4 w-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
+                                    />
+                                    <label htmlFor="no-gtin" className="ml-2 block text-sm text-gray-900">
+                                        Item without GTIN
+                                    </label>
+                                </div>
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Product Images (up to 5)</label>
                                 <MediaUploader 
                                     urls={formState.imageUrls}
@@ -587,6 +622,10 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                             <label className="block">
                                 <span className="text-gray-700">Price (IDR)</span>
                                 <input type="number" name="price" placeholder="Price in IDR" value={formState.price} onChange={handleInputChange} required className="p-3 border rounded-md w-full mt-1" />
+                            </label>
+                            <label className="block">
+                                <span className="text-gray-700">SKU (Stock Keeping Unit)</span>
+                                <input type="text" name="sku" placeholder="e.g., WAX-PINK-123" value={formState.sku || ''} onChange={handleInputChange} className="p-3 border rounded-md w-full mt-1" />
                             </label>
                         </div>
                     )}

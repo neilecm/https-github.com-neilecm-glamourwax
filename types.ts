@@ -9,6 +9,8 @@ export interface Product {
   videoUrl: string | null;
   longDescription: string;
   weight: number; // in grams
+  gtin?: string | null;
+  sku?: string;
   createdAt?: string;
 }
 
