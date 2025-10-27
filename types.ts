@@ -47,13 +47,31 @@ export interface CustomerDetails {
   subdistrict: { id: string; name: string } | null;
 }
 
-export interface Order {
+// Detailed types for fetching from the database for the Admin Panel
+export interface Customer {
   id: string;
-  customer_details: CustomerDetails;
-  order_items: CartItem[];
-  shipping_details: ShippingOption;
-  subtotal: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+}
+
+export interface OrderItemWithProduct {
+  quantity: number;
+  price: number;
+  products: Product | null;
+}
+
+export type OrderStatus = 'pending_payment' | 'paid' | 'shipped' | 'failed' | 'delivered';
+
+export interface FullOrder {
+  id: string;
+  order_number: string;
+  status: OrderStatus;
   total_amount: number;
-  midtrans_response: any;
   created_at: string;
+  shipping_provider: string;
+  shipping_service: string;
+  customers: Customer | null;
+  order_items: OrderItemWithProduct[];
 }

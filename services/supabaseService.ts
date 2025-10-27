@@ -6,6 +6,8 @@ import type {
   CustomerDetails,
   CartItem,
   ShippingOption,
+  FullOrder,
+  OrderStatus,
 } from '../types';
 
 export const supabaseService = {
@@ -122,4 +124,50 @@ export const supabaseService = {
     console.log("Successfully invoked 'create-order' function.", data);
     return data;
   },
+  
+  // Fetch all orders with related data for the Admin Dashboard
+  async getOrders(): Promise<FullOrder[]> {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        status,
+        total_amount,
+        created_at,
+        shipping_provider,
+        shipping_service,
+        customers (*),
+        order_items (
+          quantity,
+          price,
+          products (*)
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching orders:', error);
+      throw new Error(`Failed to fetch orders. Supabase error: ${error.message}`);
+    }
+    // Supabase TypeScript generator might type this as an array of objects
+    // with a 'customers' property that is an object, not an array. We cast it here.
+    return data as FullOrder[] || [];
+  },
+  
+  // Update the status of an order
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<FullOrder> {
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ status })
+      .eq('id', orderId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating order status:', error);
+      throw new Error(`Failed to update order status. Supabase error: ${error.message}`);
+    }
+    return data as FullOrder;
+  }
 };

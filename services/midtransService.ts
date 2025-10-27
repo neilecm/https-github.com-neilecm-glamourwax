@@ -1,4 +1,5 @@
-import type { Order, CustomerDetails, CartItem } from '../types';
+// FIX: Removed unused 'Order' type which is not exported from '../types'.
+import type { CustomerDetails, CartItem } from '../types';
 import { supabase } from './supabase';
 
 interface MidtransTransactionDetails {
