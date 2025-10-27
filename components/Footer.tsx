@@ -1,5 +1,6 @@
 
 
+
 import React from 'react';
 import { AppView, View } from '../App';
 
@@ -13,7 +14,7 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
           <div>
-            <h3 className="text-xl font-bold text-pink-500 mb-4">Glamour Wax</h3>
+            <h3 className="text-xl font-bold text-pink-500 mb-4">Cera Brasileira</h3>
             <p className="text-gray-600">Your one-stop shop for premium waxing products.</p>
           </div>
           <div>
@@ -34,7 +35,7 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           </div>
         </div>
         <div className="text-center text-gray-500 mt-8 pt-8 border-t border-gray-200">
-          <p>&copy; {new Date().getFullYear()} Glamour Wax Boutique. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Cera Brasileira. All rights reserved.</p>
         </div>
       </div>
     </footer>

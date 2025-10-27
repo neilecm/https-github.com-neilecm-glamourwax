@@ -55,7 +55,7 @@ serve(async (req) => {
       reply_to: email,
       html: `
         <div style="font-family: sans-serif; line-height: 1.6;">
-          <h2>New Message from Glamour Wax Boutique Contact Form</h2>
+          <h2>New Message from Cera Brasileira Contact Form</h2>
           <p>You have received a new message from your website's contact form.</p>
           <hr>
           <p><strong>Name:</strong> ${name}</p>

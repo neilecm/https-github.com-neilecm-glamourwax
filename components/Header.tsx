@@ -1,5 +1,6 @@
 
 
+
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -18,7 +19,7 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
     <header className="bg-white/80 backdrop-blur-md shadow-md fixed top-0 left-0 right-0 z-50">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <button onClick={() => onNavigate({ name: View.HOME })} className="text-2xl font-bold text-pink-500 tracking-wider">
-          Glamour Wax
+          Cera Brasileira
         </button>
         <nav className="flex items-center space-x-6">
           <button onClick={() => onNavigate({ name: View.HOME })} className="text-gray-600 hover:text-pink-500 transition-colors">

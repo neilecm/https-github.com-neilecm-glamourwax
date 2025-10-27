@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
 import type { Product } from '../types';
 
@@ -12,7 +13,7 @@ interface WishlistContextType {
 
 const WishlistContext = createContext<WishlistContextType | undefined>(undefined);
 
-const WISH_LIST_STORAGE_KEY = 'glamour_wax_wishlist';
+const WISH_LIST_STORAGE_KEY = 'cera_brasileira_wishlist';
 
 export const WishlistProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [wishlistItems, setWishlistItems] = useState<Product[]>(() => {

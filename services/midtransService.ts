@@ -32,7 +32,7 @@ export const midtransService = {
       shippingCost: number, 
       subtotal: number): Promise<string> => {
     
-    const orderId = `order-glamourwax-${Date.now()}`;
+    const orderId = `order-cerabrasileira-${Date.now()}`;
     const totalAmount = subtotal + shippingCost;
     
     const payload: MidtransPayload = {
