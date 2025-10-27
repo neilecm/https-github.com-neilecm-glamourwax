@@ -90,7 +90,9 @@ export const supabaseService = {
       customer: CustomerDetails, 
       items: CartItem[], 
       shipping: ShippingOption, 
-      total: number): Promise<Order> => {
+      total: number,
+      status: Order['status'] = 'paid'
+    ): Promise<Order> => {
     
     const newOrderData = {
         id: `order_${Date.now()}`,
@@ -98,7 +100,7 @@ export const supabaseService = {
         items,
         shipping,
         total,
-        status: 'paid' as const,
+        status,
     };
 
     // Note: Ensure RLS policies on the 'orders' table allow insert operations.
@@ -109,7 +111,7 @@ export const supabaseService = {
         throw new Error(`Failed to save order. Supabase error: ${error.message}. Check your RLS policies for the 'orders' table.`);
     }
     
-    console.log('Supabase: Order created', newOrderData);
+    console.log(`Supabase: Order created with status '${status}'`, newOrderData);
     return newOrderData;
   },
 };

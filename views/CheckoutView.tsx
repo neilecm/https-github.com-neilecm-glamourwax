@@ -8,9 +8,11 @@ import type { Province, City, District, Subdistrict, ShippingOption, CustomerDet
 
 interface CheckoutViewProps {
   onOrderSuccess: (orderId: string) => void;
+  onOrderPending: (orderId: string) => void;
+  onOrderFailed: (message: string) => void;
 }
 
-const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess }) => {
+const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPending, onOrderFailed }) => {
   const { cartItems, cartTotal, cartCount, clearCart } = useCart();
   
   const [customer, setCustomer] = useState({
@@ -167,24 +169,24 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess }) => {
             token,
             async (result) => { // onSuccess
                 console.log("Payment successful, creating order...", result);
-                // We use the transaction result to enrich our order data if needed
-                const order = await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, cartTotal + selectedShipping.cost);
+                const order = await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, cartTotal + selectedShipping.cost, 'paid');
                 clearCart();
                 onOrderSuccess(order.id);
             },
-            (result) => { // onPending
-                console.log("Payment pending...", result);
-                setError(`Your payment is pending (Order ID: ${result.order_id}). We will update you once it's confirmed.`);
-                setIsLoading(prev => ({ ...prev, payment: false }));
+            async (result) => { // onPending
+                console.log("Payment pending, creating order...", result);
+                // Create an order record with 'pending' status for tracking
+                await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, cartTotal + selectedShipping.cost, 'pending');
+                clearCart();
+                onOrderPending(result.order_id);
             },
             (result) => { // onError
                 console.log("Payment failed.", result);
-                setError(`Payment failed: ${result.status_message || 'Please try again or use a different payment method.'}`);
-                setIsLoading(prev => ({ ...prev, payment: false }));
+                onOrderFailed(result.status_message || 'Please try again or use a different payment method.');
             },
             () => { // onClose
-                console.log("Payment popup closed.");
-                // User closed the popup without completing payment
+                console.log("Payment popup closed by user.");
+                // User closed the popup, so we stop the loading indicator.
                 setIsLoading(prev => ({ ...prev, payment: false }));
             }
         );

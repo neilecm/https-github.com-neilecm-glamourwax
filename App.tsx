@@ -9,6 +9,8 @@ import OrderConfirmationView from './views/OrderConfirmationView';
 import AdminView from './views/AdminView';
 import Footer from './components/Footer';
 import type { Product } from './types';
+import PaymentPendingView from './views/PaymentPendingView';
+import PaymentFailedView from './views/PaymentFailedView';
 
 export enum View {
   HOME,
@@ -17,6 +19,8 @@ export enum View {
   CHECKOUT,
   CONFIRMATION,
   ADMIN,
+  PENDING,
+  FAILED,
 }
 
 export type AppView =
@@ -25,7 +29,9 @@ export type AppView =
   | { name: View.CART }
   | { name: View.CHECKOUT }
   | { name: View.CONFIRMATION; orderId: string }
-  | { name: View.ADMIN };
+  | { name: View.ADMIN }
+  | { name: View.PENDING; orderId: string }
+  | { name: View.FAILED; message: string };
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
@@ -44,9 +50,19 @@ const App: React.FC = () => {
       case View.CART:
         return <CartView onCheckout={() => navigate({ name: View.CHECKOUT })} />;
       case View.CHECKOUT:
-        return <CheckoutView onOrderSuccess={(orderId) => navigate({ name: View.CONFIRMATION, orderId })} />;
+        return (
+          <CheckoutView 
+            onOrderSuccess={(orderId) => navigate({ name: View.CONFIRMATION, orderId })}
+            onOrderPending={(orderId) => navigate({ name: View.PENDING, orderId })}
+            onOrderFailed={(message) => navigate({ name: View.FAILED, message })}
+          />
+        );
       case View.CONFIRMATION:
         return <OrderConfirmationView orderId={currentView.orderId} onBackToHome={() => navigate({ name: View.HOME })} />;
+       case View.PENDING:
+        return <PaymentPendingView orderId={currentView.orderId} onBackToHome={() => navigate({ name: View.HOME })} />;
+      case View.FAILED:
+        return <PaymentFailedView errorMessage={currentView.message} onBackToHome={() => navigate({ name: View.HOME })} onRetry={() => navigate({ name: View.CART })} />;
       case View.ADMIN:
         return <AdminView />;
       default:
