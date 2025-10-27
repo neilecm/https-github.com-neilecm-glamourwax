@@ -36,7 +36,6 @@ const OrdersView: React.FC = () => {
     const [orders, setOrders] = useState<FullOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -92,51 +91,58 @@ const OrdersView: React.FC = () => {
         <div>
             <h2 className="text-2xl font-semibold mb-4">My Orders</h2>
             <div className="overflow-x-auto">
-                <table className="min-w-full bg-white">
+                <table className="min-w-full bg-white text-sm">
                     <thead className="bg-gray-100">
                         <tr>
-                            <th className="py-3 px-4 text-left">Client Name</th>
-                            <th className="py-3 px-4 text-left">Total Paid</th>
-                            <th className="py-3 px-4 text-left">Status & Countdown</th>
-                            <th className="py-3 px-4 text-left">Shipping Channel</th>
-                            <th className="py-3 px-4 text-left">Actions</th>
+                            <th className="py-3 px-4 text-left font-semibold">Client Name</th>
+                            <th className="py-3 px-4 text-left font-semibold">Products Purchased</th>
+                            <th className="py-3 px-4 text-left font-semibold">Total Paid</th>
+                            <th className="py-3 px-4 text-left font-semibold">Status & Countdown</th>
+                            <th className="py-3 px-4 text-left font-semibold">Shipping Channel</th>
+                            <th className="py-3 px-4 text-left font-semibold">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {orders.map(order => {
                             const deadline = getShippingDeadline(order);
-                            const isExpanded = expandedOrderId === order.id;
                             return (
-                                <React.Fragment key={order.id}>
-                                    <tr className="border-b hover:bg-gray-50">
-                                        <td className="py-3 px-4">{order.customers ? `${order.customers.first_name} ${order.customers.last_name}` : 'N/A'}</td>
-                                        <td className="py-3 px-4">Rp{order.total_amount.toLocaleString('id-ID')}</td>
-                                        <td className="py-3 px-4">
-                                            <span className={`capitalize px-2 py-1 text-xs font-semibold rounded-full ${order.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-800'}`}>
-                                                {order.status.replace('_', ' ')}
-                                            </span>
-                                            {deadline && <CountdownTimer deadline={deadline} />}
-                                        </td>
-                                        <td className="py-3 px-4">{order.shipping_provider} ({order.shipping_service})</td>
-                                        <td className="py-3 px-4 space-x-2">
-                                            <button onClick={() => setExpandedOrderId(isExpanded ? null : order.id)} className="text-blue-500 hover:underline text-sm">View Items</button>
-                                            <button onClick={() => handleArrangePickup(order.id)} disabled={order.status !== 'paid'} className="text-green-500 hover:underline disabled:text-gray-400 disabled:no-underline text-sm">Arrange Pick Up</button>
-                                            <button onClick={handlePrintWaybill} className="text-indigo-500 hover:underline text-sm">Print Waybill</button>
-                                        </td>
-                                    </tr>
-                                    {isExpanded && (
-                                        <tr className="bg-gray-50">
-                                            <td colSpan={5} className="p-4">
-                                                <h4 className="font-semibold mb-2">Purchased Items:</h4>
-                                                <ul className="list-disc pl-5 text-sm text-gray-700">
-                                                    {order.order_items.map(item => (
-                                                        <li key={item.products?.id}>{item.products?.name || 'Unknown Product'} x {item.quantity}</li>
-                                                    ))}
-                                                </ul>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </React.Fragment>
+                                <tr key={order.id} className="border-b hover:bg-gray-50 align-top">
+                                    <td className="py-3 px-4">{order.customers ? `${order.customers.first_name} ${order.customers.last_name}` : 'N/A'}</td>
+                                    <td className="py-3 px-4">
+                                      <ul className="space-y-1">
+                                        {order.order_items.map(item => (
+                                          <li key={item.products?.id}>
+                                            {item.products?.name || 'Unknown Product'} x <strong>{item.quantity}</strong>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </td>
+                                    <td className="py-3 px-4 font-medium">Rp{order.total_amount.toLocaleString('id-ID')}</td>
+                                    <td className="py-3 px-4">
+                                        <span className={`capitalize px-2 py-1 text-xs font-semibold rounded-full ${order.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-800'}`}>
+                                            {order.status.replace('_', ' ')}
+                                        </span>
+                                        {deadline && <CountdownTimer deadline={deadline} />}
+                                    </td>
+                                    <td className="py-3 px-4">{order.shipping_provider} ({order.shipping_service})</td>
+                                    <td className="py-3 px-4">
+                                        <div className="flex flex-col items-start gap-2">
+                                            <button 
+                                              onClick={() => handleArrangePickup(order.id)} 
+                                              disabled={order.status !== 'paid'} 
+                                              className="bg-green-100 text-green-700 px-3 py-1 rounded-md text-xs font-semibold hover:bg-green-200 disabled:bg-gray-100 disabled:text-gray-400 transition-colors"
+                                            >
+                                              Arrange Pick Up
+                                            </button>
+                                            <button 
+                                              onClick={handlePrintWaybill} 
+                                              className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-md text-xs font-semibold hover:bg-indigo-200 transition-colors"
+                                            >
+                                              Print Waybill
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
                             );
                         })}
                     </tbody>
