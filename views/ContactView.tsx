@@ -3,6 +3,12 @@ import { supabaseService } from '../services/supabaseService';
 import Spinner from '../components/Spinner';
 import type { ContactFormData } from '../types';
 
+const WhatsAppIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.487 5.235 3.487 8.413 0 6.557-5.338 11.892-11.894 11.892-1.99 0-3.903-.52-5.613-1.476l-6.238 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.451-4.437-9.885-9.888-9.885-5.451 0-9.885 4.434-9.888 9.885.001 2.245.75 4.385 2.106 6.057l-1.35 4.939 5.025-1.332zM12 4.012c4.873 0 8.847 3.972 8.847 8.846s-3.974 8.846-8.847 8.846-8.847-3.972-8.847-8.846c0-2.384.954-4.606 2.65-6.223l-1.09-3.967 4.09 1.082c1.554-.959 3.28-1.503 5.107-1.503zm0 1.258c-4.14 0-7.5 3.36-7.5 7.5s3.36 7.5 7.5 7.5 7.5-3.36 7.5-7.5-3.36-7.5-7.5-7.5zm.366 3.159a.37.37 0 00-.366.366v5.242a.37.37 0 00.366.366h2.955a.37.37 0 00.366-.366V12.5a.37.37 0 00-.366-.366h-2.955zm-1.898-1.48a.37.37 0 00-.366.366v1.48h-1.48a.37.37 0 00-.366.366v1.48a.37.37 0 00.366.366h1.48v1.48a.37.37 0 00.366.366h1.48a.37.37 0 00.366-.366v-1.48h1.48a.37.37 0 00.366-.366v-1.48a.37.37 0 00-.366-.366h-1.48v-1.48a.37.37 0 00-.366-.366h-1.48z" />
+  </svg>
+);
+
 const ContactView: React.FC = () => {
   const [formData, setFormData] = useState<ContactFormData>({
     name: '',
@@ -13,6 +19,7 @@ const ContactView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const whatsappNumber = "6281288472398"; // The number without '+' or spaces
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -108,7 +115,16 @@ const ContactView: React.FC = () => {
             className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
           />
         </div>
-        <div className="text-right">
+        <div className="flex justify-end items-center gap-4">
+          <a
+            href={`https://wa.me/${whatsappNumber}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center py-3 px-6 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+          >
+            <WhatsAppIcon />
+            Chat on WhatsApp
+          </a>
           <button
             type="submit"
             disabled={isLoading}
