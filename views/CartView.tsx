@@ -1,6 +1,5 @@
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
-import type { CartItem } from '../types';
 
 interface CartViewProps {
   onCheckout: () => void;
@@ -23,22 +22,27 @@ const CartView: React.FC<CartViewProps> = ({ onCheckout }) => {
       <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
       <div className="divide-y divide-gray-200">
         {cartItems.map(item => (
-          <div key={item.id} className="flex items-center py-4">
-            <img src={item.imageUrls?.[0] || 'https://placehold.co/100x100?text=No+Img'} alt={item.name} className="w-24 h-24 object-cover rounded-md" />
+          <div key={item.cartItemId} className="flex items-center py-4">
+            <img 
+              src={item.variant.imageUrls?.[0] || 'https://placehold.co/100x100?text=No+Img'} 
+              alt={item.variant.name} 
+              className="w-24 h-24 object-cover rounded-md" 
+            />
             <div className="flex-grow ml-4">
-              <h2 className="font-semibold">{item.name}</h2>
-              <p className="text-sm text-gray-500">Rp{item.price.toLocaleString('id-ID')}</p>
+              <h2 className="font-semibold">{item.product.name}</h2>
+              <p className="text-sm text-gray-500">{item.variant.name}</p>
+              <p className="text-sm text-gray-500">Rp{item.variant.price.toLocaleString('id-ID')}</p>
             </div>
             <div className="flex items-center gap-4">
               <input 
                 type="number" 
                 min="1" 
                 value={item.quantity} 
-                onChange={e => updateQuantity(item.id, parseInt(e.target.value, 10))}
+                onChange={e => updateQuantity(item.cartItemId, parseInt(e.target.value, 10))}
                 className="w-16 p-2 border border-gray-300 rounded-md text-center"
               />
-              <p className="w-28 text-right font-semibold">Rp{(item.price * item.quantity).toLocaleString('id-ID')}</p>
-              <button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700">
+              <p className="w-28 text-right font-semibold">Rp{(item.variant.price * item.quantity).toLocaleString('id-ID')}</p>
+              <button onClick={() => removeFromCart(item.cartItemId)} className="text-red-500 hover:text-red-700 text-2xl font-bold">
                 &times;
               </button>
             </div>

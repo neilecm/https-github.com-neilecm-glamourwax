@@ -20,9 +20,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
     const { addToCart } = useCart();
     const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist();
 
-    const handleAddToCart = (e: React.MouseEvent) => {
+    const hasVariants = product.variants && product.variants.length > 1;
+    const defaultVariant = product.variants?.[0];
+
+    const handleActionClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        addToCart(product, 1);
+        if (hasVariants) {
+            onClick(product); // Navigate to detail page
+        } else if (defaultVariant) {
+            addToCart(product, defaultVariant, 1);
+        }
     };
 
     const handleWishlistToggle = (e: React.MouseEvent) => {
@@ -32,6 +39,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
         } else {
             addToWishlist(product);
         }
+    };
+    
+    const getPriceDisplay = () => {
+        if (!product.variants || product.variants.length === 0) {
+            return 'Not Available';
+        }
+        const prices = product.variants.map(v => v.price);
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        
+        if (minPrice === maxPrice) {
+            return `Rp${minPrice.toLocaleString('id-ID')}`;
+        }
+        return `From Rp${minPrice.toLocaleString('id-ID')}`;
     };
 
     const isWishlisted = isInWishlist(product.id);
@@ -57,12 +78,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
         <h3 className="text-lg font-semibold text-gray-800 truncate">{product.name}</h3>
         <p className="text-gray-500 mt-1">{product.category}</p>
         <div className="flex justify-between items-center mt-4">
-          <span className="text-xl font-bold text-pink-500">Rp{product.price.toLocaleString('id-ID')}</span>
+          <span className="text-xl font-bold text-pink-500">{getPriceDisplay()}</span>
           <button 
-            onClick={handleAddToCart}
-            className="bg-pink-500 text-white px-4 py-2 rounded-full hover:bg-pink-600 transition-colors transform hover:scale-105"
+            onClick={handleActionClick}
+            disabled={!defaultVariant}
+            className="bg-pink-500 text-white px-4 py-2 rounded-full hover:bg-pink-600 transition-colors transform hover:scale-105 disabled:bg-pink-300"
           >
-            Add to Cart
+            {hasVariants ? 'View Options' : 'Add to Cart'}
           </button>
         </div>
       </div>

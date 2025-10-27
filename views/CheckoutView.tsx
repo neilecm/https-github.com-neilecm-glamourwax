@@ -37,7 +37,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
   });
   const [error, setError] = useState<string | null>(null);
 
-  const totalWeight = useMemo(() => cartItems.reduce((acc, item) => acc + (item.weight * item.quantity), 0), [cartItems]);
+  const totalWeight = useMemo(() => cartItems.reduce((acc, item) => acc + (item.variant.weight * item.quantity), 0), [cartItems]);
 
   useEffect(() => {
     const fetchProvinces = async () => {
@@ -281,9 +281,9 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
                 <h2 className="text-2xl font-semibold mb-4 border-b pb-4">Order Summary</h2>
                 <div className="space-y-2">
                     {cartItems.map(item => (
-                        <div key={item.id} className="flex justify-between text-sm">
-                            <span>{item.name} x {item.quantity}</span>
-                            <span>Rp{(item.price * item.quantity).toLocaleString('id-ID')}</span>
+                        <div key={item.cartItemId} className="flex justify-between text-sm">
+                            <span>{item.product.name} ({item.variant.name}) x {item.quantity}</span>
+                            <span>Rp{(item.variant.price * item.quantity).toLocaleString('id-ID')}</span>
                         </div>
                     ))}
                 </div>

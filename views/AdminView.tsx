@@ -1,15 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { komerceService } from '../services/komerceService';
-import type { Product, FullOrder, OrderStatus } from '../types';
+import type { Product, FullOrder, OrderStatus, ProductVariant, ProductVariantOption, ProductVariantOptionValue } from '../types';
 import Spinner from '../components/Spinner';
-import MarketingView from './MarketingView'; // Import the new view
+import MarketingView from './MarketingView';
 
 // #region Helper Functions
 const base64ToBlob = (base64: string, contentType = '', sliceSize = 512) => {
   const byteCharacters = atob(base64);
   const byteArrays = [];
-
   for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
     const slice = byteCharacters.slice(offset, offset + sliceSize);
     const byteNumbers = new Array(slice.length);
@@ -19,14 +18,32 @@ const base64ToBlob = (base64: string, contentType = '', sliceSize = 512) => {
     const byteArray = new Uint8Array(byteNumbers);
     byteArrays.push(byteArray);
   }
-
   return new Blob(byteArrays, { type: contentType });
 };
 
+// Generates the cartesian product of the variant options to create all possible variants
+const generateVariantCombinations = (options: ProductVariantOption[]): Record<string, string>[] => {
+    if (!options || options.length === 0 || options.some(o => o.values.length === 0)) {
+        // If there are options defined but no values, treat as no variants.
+        // If no options, create one default variant.
+        return options.length > 0 ? [] : [{}];
+    }
+    
+    const [firstOption, ...restOptions] = options;
+    const restCombinations = generateVariantCombinations(restOptions);
+    
+    return firstOption.values.flatMap(value => 
+        restCombinations.map(combination => ({
+            ...combination,
+            [firstOption.name]: value.value
+        }))
+    );
+};
 // #endregion
 
 // #region Child Components for AdminView
 
+// ... (OrdersView components remain the same)
 const CountdownTimer: React.FC<{ deadline: Date }> = ({ deadline }) => {
   const [timeLeft, setTimeLeft] = useState(deadline.getTime() - Date.now());
 
@@ -123,7 +140,8 @@ const OrdersView: React.FC = () => {
 
         const clientName = `${order.customers?.first_name || ''} ${order.customers?.last_name || ''}`.toLowerCase();
         const hasMatchingProduct = order.order_items.some(item =>
-            item.products?.name.toLowerCase().includes(query)
+            item.products?.name.toLowerCase().includes(query) ||
+            item.products?.product_variants?.name.toLowerCase().includes(query)
         );
         const hasMatchingOrderNumber = order.order_number.toLowerCase().includes(query);
 
@@ -136,7 +154,7 @@ const OrdersView: React.FC = () => {
         try {
             const result = await komerceService.arrangePickup(order.order_number);
             alert(`Pickup arranged successfully! AWB: ${result.awb}`);
-            await fetchOrders(); // Refresh the list to show new status and AWB
+            await fetchOrders(); 
         } catch (err: any) {
             setError(err.message || "Failed to arrange pickup.");
         } finally {
@@ -153,9 +171,7 @@ const OrdersView: React.FC = () => {
             const url = URL.createObjectURL(blob);
             const printWindow = window.open(url, '_blank');
             if(printWindow) {
-                printWindow.onload = () => {
-                    printWindow.print();
-                }
+                printWindow.onload = () => { printWindow.print(); }
             } else {
                 throw new Error("Could not open print window. Please disable pop-up blockers.");
             }
@@ -168,17 +184,15 @@ const OrdersView: React.FC = () => {
     
     const getShippingDeadline = (order: FullOrder): Date | null => {
         if (order.status !== 'paid') return null;
-        
         const orderDate = new Date(order.created_at);
         const isSameDay = order.shipping_service.toLowerCase().includes('sameday') || order.shipping_service.toLowerCase().includes('instant');
-        
         if (isSameDay) {
             const deadline = new Date(orderDate);
-            deadline.setHours(17, 0, 0, 0); // 5:00 PM on the same day
+            deadline.setHours(17, 0, 0, 0);
             return deadline;
         } else {
             const deadline = new Date(orderDate);
-            deadline.setDate(deadline.getDate() + 3); // 3 days for regular shipping
+            deadline.setDate(deadline.getDate() + 3);
             return deadline;
         }
     };
@@ -225,9 +239,9 @@ const OrdersView: React.FC = () => {
                                     </td>
                                     <td className="py-3 px-4">
                                       <ul className="space-y-1">
-                                        {order.order_items.map(item => (
-                                          <li key={item.products?.id}>
-                                            {item.products?.name || 'Unknown Product'} x <strong>{item.quantity}</strong>
+                                        {order.order_items.map((item, idx) => (
+                                          <li key={idx}>
+                                            {item.products?.name || 'Unknown'} - <strong>{item.products?.product_variants?.name || 'Variant'}</strong> x <strong>{item.quantity}</strong>
                                           </li>
                                         ))}
                                       </ul>
@@ -247,21 +261,14 @@ const OrdersView: React.FC = () => {
                                     </td>
                                     <td className="py-3 px-4 font-mono text-xs">{order.awb_number || 'N/A'}</td>
                                     <td className="py-3 px-4">
-                                      <RenderOrderActions
-                                        order={order}
-                                        isLoading={actionLoading[order.id]}
-                                        onArrangePickup={handleArrangePickup}
-                                        onPrintWaybill={handlePrintWaybill}
-                                      />
+                                      <RenderOrderActions order={order} isLoading={actionLoading[order.id]} onArrangePickup={handleArrangePickup} onPrintWaybill={handlePrintWaybill} />
                                     </td>
                                 </tr>
                             );
                         })}
                     </tbody>
                 </table>
-                {filteredOrders.length === 0 && orders.length > 0 && (
-                    <p className="text-center py-8 text-gray-500">No orders match your search criteria.</p>
-                )}
+                {filteredOrders.length === 0 && orders.length > 0 && ( <p className="text-center py-8 text-gray-500">No orders match your search criteria.</p>)}
                 {orders.length === 0 && <p className="text-center py-8 text-gray-500">No orders found.</p>}
             </div>
         </div>
@@ -280,8 +287,7 @@ const ProductsView: React.FC<{
 
     const fetchProducts = useCallback(async () => {
         try {
-            setIsLoading(true);
-            setError(null);
+            setIsLoading(true); setError(null);
             const data = await supabaseService.getProducts();
             setProducts(data);
         } catch (err: any) {
@@ -291,9 +297,7 @@ const ProductsView: React.FC<{
         }
     }, []);
 
-    useEffect(() => {
-        fetchProducts();
-    }, [fetchProducts]);
+    useEffect(() => { fetchProducts(); }, [fetchProducts]);
 
     const handleDelete = async (productId: string) => {
         if (window.confirm('Are you sure you want to delete this product?')) {
@@ -314,18 +318,8 @@ const ProductsView: React.FC<{
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-semibold">My Products</h2>
                 <div className="flex items-center gap-4">
-                    <button
-                        onClick={onManageBrands}
-                        className="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors font-semibold"
-                    >
-                        Brand Management
-                    </button>
-                    <button
-                        onClick={onAddNew}
-                        className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition-colors font-semibold"
-                    >
-                        + Add New Product
-                    </button>
+                    <button onClick={onManageBrands} className="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors font-semibold">Brand Management</button>
+                    <button onClick={onAddNew} className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition-colors font-semibold">+ Add New Product</button>
                 </div>
             </div>
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg mb-4">{error}</div>}
@@ -334,49 +328,43 @@ const ProductsView: React.FC<{
                     <thead className="bg-gray-100">
                     <tr>
                         <th className="py-3 px-4 text-left">Product</th>
-                        <th className="py-3 px-4 text-left">Price</th>
+                        <th className="py-3 px-4 text-left">Price Range</th>
                         <th className="py-3 px-4 text-left">Category</th>
+                        <th className="py-3 px-4 text-left">Variants</th>
                         <th className="py-3 px-4 text-left">Actions</th>
                     </tr>
                     </thead>
                     <tbody>
-                    {products.map((product) => (
-                        <tr key={product.id} className="border-b hover:bg-gray-50">
-                        <td className="py-3 px-4 flex items-center">
-                            <img src={product.imageUrls?.[0] || 'https://placehold.co/100x100?text=No+Img'} alt={product.name} className="w-12 h-12 object-cover rounded-md mr-4" />
-                            <span>{product.name}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                            Rp{product.price.toLocaleString('id-ID')}
-                        </td>
-                        <td className="py-3 px-4">{product.category}</td>
-                        <td className="py-3 px-4">
-                            <button onClick={() => onEdit(product)} className="text-blue-500 hover:underline mr-4">
-                            Edit
-                            </button>
-                            <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:underline">
-                            Delete
-                            </button>
-                        </td>
-                        </tr>
-                    ))}
+                    {products.map((product) => {
+                         const prices = product.variants.map(v => v.price);
+                         const priceDisplay = prices.length > 0
+                           ? `Rp${Math.min(...prices).toLocaleString('id-ID')} - Rp${Math.max(...prices).toLocaleString('id-ID')}`
+                           : 'N/A';
+                        return (
+                            <tr key={product.id} className="border-b hover:bg-gray-50">
+                                <td className="py-3 px-4 flex items-center">
+                                    <img src={product.imageUrls?.[0] || 'https://placehold.co/100x100?text=No+Img'} alt={product.name} className="w-12 h-12 object-cover rounded-md mr-4" />
+                                    <span>{product.name}</span>
+                                </td>
+                                <td className="py-3 px-4">{priceDisplay}</td>
+                                <td className="py-3 px-4">{product.category}</td>
+                                <td className="py-3 px-4">{product.variants.length}</td>
+                                <td className="py-3 px-4">
+                                    <button onClick={() => onEdit(product)} className="text-blue-500 hover:underline mr-4">Edit</button>
+                                    <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:underline">Delete</button>
+                                </td>
+                            </tr>
+                        )
+                    })}
                     </tbody>
                 </table>
-                {products.length === 0 && (
-                    <p className="text-center py-8 text-gray-500">No products found.</p>
-                )}
+                {products.length === 0 && ( <p className="text-center py-8 text-gray-500">No products found.</p> )}
             </div>
         </div>
     );
 };
 
-const MediaUploader: React.FC<{
-    urls: (string | null)[];
-    onUrlsChange: (newUrls: string[]) => void;
-    maxFiles: number;
-    fileType: 'image' | 'video';
-    className?: string;
-}> = ({ urls, onUrlsChange, maxFiles, fileType, className }) => {
+const MediaUploader: React.FC<{ urls: (string | null)[]; onUrlsChange: (newUrls: string[]) => void; maxFiles: number; fileType: 'image' | 'video'; className?: string;}> = ({ urls, onUrlsChange, maxFiles, fileType, className }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const inputRef = React.useRef<HTMLInputElement>(null);
@@ -384,17 +372,9 @@ const MediaUploader: React.FC<{
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (!files || files.length === 0) return;
-
-        if (urls.length + files.length > maxFiles) {
-            setError(`You can only upload a maximum of ${maxFiles} ${fileType}s.`);
-            return;
-        }
-
-        setIsUploading(true);
-        setError(null);
+        if (urls.length + files.length > maxFiles) { setError(`You can only upload a maximum of ${maxFiles} ${fileType}s.`); return; }
+        setIsUploading(true); setError(null);
         try {
-            // FIX: Explicitly type the `file` argument in the map function as `File`.
-            // The type inference was failing, causing `file` to be treated as `unknown`.
             const uploadPromises = Array.from(files).map((file: File) => supabaseService.uploadProductMedia(file));
             const newUrls = await Promise.all(uploadPromises);
             onUrlsChange([...(urls.filter(u => u) as string[]), ...newUrls]);
@@ -402,75 +382,17 @@ const MediaUploader: React.FC<{
             setError(err.message || `Failed to upload ${fileType}.`);
         } finally {
             setIsUploading(false);
-            if (inputRef.current) {
-                inputRef.current.value = ''; // Reset file input
-            }
+            if (inputRef.current) { inputRef.current.value = ''; }
         }
     };
-
-    const handleRemove = (urlToRemove: string) => {
-        onUrlsChange(urls.filter(url => url !== urlToRemove) as string[]);
-    };
-    
+    const handleRemove = (urlToRemove: string) => { onUrlsChange(urls.filter(url => url !== urlToRemove) as string[]); };
     const slots = Array.from({ length: maxFiles }, (_, i) => urls[i] || null);
 
-    return (
-        <div className={className}>
-            {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                {slots.map((url, index) => (
-                    <div
-                        key={index}
-                        className={`relative aspect-square border-2 border-dashed rounded-lg flex items-center justify-center transition-colors
-                            ${url ? 'border-gray-300' : 'border-gray-300 hover:border-pink-400 bg-gray-50'}`
-                        }
-                    >
-                        {url ? (
-                            <>
-                                {fileType === 'image' ? (
-                                    <img src={url} alt={`Product media ${index + 1}`} className="w-full h-full object-cover rounded-md" />
-                                ) : (
-                                    <video src={url} className="w-full h-full object-cover rounded-md" controls />
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => handleRemove(url)}
-                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center text-sm font-bold hover:bg-red-600"
-                                >
-                                    &times;
-                                </button>
-                            </>
-                        ) : (
-                            !urls.some(Boolean) || urls.length < maxFiles ? (
-                                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-gray-500">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 4v16m8-8H4" /></svg>
-                                    <span className="text-xs mt-1">Add {fileType}</span>
-                                    <input
-                                        ref={inputRef}
-                                        type="file"
-                                        className="hidden"
-                                        accept={`${fileType}/*`}
-                                        multiple={maxFiles > 1}
-                                        onChange={handleFileChange}
-                                        disabled={isUploading || urls.length >= maxFiles}
-                                    />
-                                </label>
-                            ) : null
-                        )}
-                        {isUploading && (
-                            <div className="absolute inset-0 bg-white/70 flex items-center justify-center"><Spinner /></div>
-                        )}
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
+    return ( <div className={className}> {error && <p className="text-red-500 text-sm mb-2">{error}</p>} <div className="grid grid-cols-2 md:grid-cols-5 gap-4"> {slots.map((url, index) => ( <div key={index} className={`relative aspect-square border-2 border-dashed rounded-lg flex items-center justify-center transition-colors ${url ? 'border-gray-300' : 'border-gray-300 hover:border-pink-400 bg-gray-50'}`} > {url ? ( <> {fileType === 'image' ? ( <img src={url} alt={`Product media ${index + 1}`} className="w-full h-full object-cover rounded-md" /> ) : ( <video src={url} className="w-full h-full object-cover rounded-md" controls /> )} <button type="button" onClick={() => handleRemove(url)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center text-sm font-bold hover:bg-red-600" > &times; </button> </> ) : ( !urls.some(Boolean) || urls.length < maxFiles ? ( <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-gray-500"> <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 4v16m8-8H4" /></svg> <span className="text-xs mt-1">Add {fileType}</span> <input ref={inputRef} type="file" className="hidden" accept={`${fileType}/*`} multiple={maxFiles > 1} onChange={handleFileChange} disabled={isUploading || urls.length >= maxFiles} /> </label> ) : null )} {isUploading && ( <div className="absolute inset-0 bg-white/70 flex items-center justify-center"><Spinner /></div> )} </div> ))} </div> </div> );
 };
 
-
 type FormState = Omit<Product, 'id' | 'createdAt'>;
-const initialFormState: FormState = { name: '', price: 0, category: '', imageUrls: [], videoUrl: null, longDescription: '', weight: 0, gtin: '', sku: '' };
-
+const initialFormState: FormState = { name: '', category: '', imageUrls: [], videoUrl: null, longDescription: '', variantOptions: [], variants: [] };
 type ProductFormSection = 'basic' | 'description' | 'sales' | 'shipping' | 'others';
 
 const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> = ({ product, onFinish }) => {
@@ -480,17 +402,7 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
 
     useEffect(() => {
         if (product) {
-            setFormState({
-                name: product.name,
-                price: product.price,
-                category: product.category,
-                imageUrls: product.imageUrls || [],
-                videoUrl: product.videoUrl || null,
-                longDescription: product.longDescription,
-                weight: product.weight,
-                gtin: product.gtin,
-                sku: product.sku || '',
-            });
+            setFormState({ name: product.name, category: product.category, imageUrls: product.imageUrls || [], videoUrl: product.videoUrl || null, longDescription: product.longDescription, variantOptions: product.variantOptions || [], variants: product.variants || [] });
         } else {
             setFormState(initialFormState);
         }
@@ -498,44 +410,43 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
     
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        setFormState((prev) => ({...prev, [name]: name === 'price' || name === 'weight' ? parseFloat(value) || 0 : value }));
+        setFormState((prev) => ({...prev, [name]: value }));
     };
+
+    const handleVariantsChange = useCallback((variants: ProductVariant[]) => {
+        setFormState(prev => ({ ...prev, variants }));
+    }, []);
     
-    const handleGtinCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const isChecked = e.target.checked;
-        setFormState(prev => ({
-            ...prev,
-            gtin: isChecked ? null : ''
-        }));
-    };
+    const handleVariantOptionsChange = useCallback((options: ProductVariantOption[]) => {
+        setFormState(prev => ({...prev, variantOptions: options}));
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
-        if (formState.imageUrls.length === 0) {
-            setError("Please upload at least one product image.");
-            return;
-        }
-
-        try {
-            if (product) {
+        if (formState.imageUrls.length === 0) { setError("Please upload at least one product image."); return; }
+        if (formState.variants.length === 0 && formState.variantOptions.length > 0) { setError("Please add values to your product options to generate variants."); return; }
+        if (formState.variants.length === 0) {
+            // Create a default variant if no options are defined
+            const defaultVariant: Omit<ProductVariant, 'id' | 'productId'> = {
+                name: 'Default', price: 0, sku: '', gtin: null, weight: 0, stock: 0, imageUrls: [], options: {}
+            };
+             await supabaseService.addProduct({ ...formState, variants: [defaultVariant] } as any);
+        } else {
+             if (product) {
                 await supabaseService.updateProduct(product.id, formState);
             } else {
-                await supabaseService.addProduct(formState);
+                await supabaseService.addProduct(formState as any);
             }
-            onFinish();
+        }
+        onFinish();
+        try {
         } catch (err: any) {
             setError(err.message || 'Failed to save product.');
         }
     };
     
-    const sections: { key: ProductFormSection; label: string }[] = [
-        { key: 'basic', label: 'Basic Information' },
-        { key: 'description', label: 'Description' },
-        { key: 'sales', label: 'Sales Information' },
-        { key: 'shipping', label: 'Shipping' },
-        { key: 'others', label: 'Others' },
-    ];
+    const sections: { key: ProductFormSection; label: string }[] = [ { key: 'basic', label: 'Basic Information' }, { key: 'description', label: 'Description' }, { key: 'sales', label: 'Sales Information' }, { key: 'others', label: 'Others' } ];
 
     return (
         <div className="p-6 bg-gray-50 rounded-lg border">
@@ -543,20 +454,7 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg mb-4">{error}</div>}
             
             <div className="flex border-b mb-6 flex-wrap">
-                {sections.map(({ key, label }) => (
-                    <button
-                        key={key}
-                        type="button"
-                        onClick={() => setActiveSection(key)}
-                        className={`px-4 py-2 font-medium text-sm transition-colors ${
-                            activeSection === key
-                            ? 'border-b-2 border-pink-500 text-pink-600'
-                            : 'text-gray-500 hover:text-pink-600'
-                        }`}
-                    >
-                        {label}
-                    </button>
-                ))}
+                {sections.map(({ key, label }) => ( <button key={key} type="button" onClick={() => setActiveSection(key)} className={`px-4 py-2 font-medium text-sm transition-colors ${ activeSection === key ? 'border-b-2 border-pink-500 text-pink-600' : 'text-gray-500 hover:text-pink-600' }`} > {label} </button> ))}
             </div>
 
             <form onSubmit={handleSubmit}>
@@ -568,80 +466,18 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                                 <input name="category" placeholder="Category" value={formState.category} onChange={handleInputChange} required className="p-3 border rounded-md w-full" />
                             </div>
                             <div>
-                                <label htmlFor="gtin" className="block text-sm font-medium text-gray-700">GTIN (Global Trade Item Number)</label>
-                                <input
-                                    type="text"
-                                    id="gtin"
-                                    name="gtin"
-                                    placeholder="e.g., 9780201379624"
-                                    value={formState.gtin ?? ''}
-                                    onChange={handleInputChange}
-                                    disabled={formState.gtin === null}
-                                    className="p-3 mt-1 border rounded-md w-full disabled:bg-gray-200 disabled:cursor-not-allowed"
-                                />
-                                <div className="flex items-center mt-2">
-                                    <input
-                                        type="checkbox"
-                                        id="no-gtin"
-                                        checked={formState.gtin === null}
-                                        onChange={handleGtinCheckboxChange}
-                                        className="h-4 w-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
-                                    />
-                                    <label htmlFor="no-gtin" className="ml-2 block text-sm text-gray-900">
-                                        Item without GTIN
-                                    </label>
-                                </div>
-                            </div>
-                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Product Images (up to 5)</label>
-                                <MediaUploader 
-                                    urls={formState.imageUrls}
-                                    onUrlsChange={(newUrls) => setFormState(prev => ({...prev, imageUrls: newUrls}))}
-                                    maxFiles={5}
-                                    fileType="image"
-                                />
+                                <MediaUploader urls={formState.imageUrls} onUrlsChange={(newUrls) => setFormState(prev => ({...prev, imageUrls: newUrls}))} maxFiles={5} fileType="image" />
                             </div>
                              <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Product Video (optional)</label>
-                                <MediaUploader 
-                                    urls={formState.videoUrl ? [formState.videoUrl] : []}
-                                    onUrlsChange={(newUrls) => setFormState(prev => ({...prev, videoUrl: newUrls[0] || null}))}
-                                    maxFiles={1}
-                                    fileType="video"
-                                />
+                                <MediaUploader urls={formState.videoUrl ? [formState.videoUrl] : []} onUrlsChange={(newUrls) => setFormState(prev => ({...prev, videoUrl: newUrls[0] || null}))} maxFiles={1} fileType="video" />
                             </div>
                         </div>
                     )}
-                    {activeSection === 'description' && (
-                        <div className="animate-fadeIn">
-                            <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} onChange={handleInputChange} required rows={6} className="p-3 border rounded-md w-full" />
-                        </div>
-                    )}
-                    {activeSection === 'sales' && (
-                        <div className="space-y-4 animate-fadeIn">
-                            <label className="block">
-                                <span className="text-gray-700">Price (IDR)</span>
-                                <input type="number" name="price" placeholder="Price in IDR" value={formState.price} onChange={handleInputChange} required className="p-3 border rounded-md w-full mt-1" />
-                            </label>
-                            <label className="block">
-                                <span className="text-gray-700">SKU (Stock Keeping Unit)</span>
-                                <input type="text" name="sku" placeholder="e.g., WAX-PINK-123" value={formState.sku || ''} onChange={handleInputChange} className="p-3 border rounded-md w-full mt-1" />
-                            </label>
-                        </div>
-                    )}
-                    {activeSection === 'shipping' && (
-                        <div className="space-y-4 animate-fadeIn">
-                            <label className="block">
-                                <span className="text-gray-700">Weight (grams)</span>
-                                <input type="number" name="weight" placeholder="Weight in grams" value={formState.weight} onChange={handleInputChange} required className="p-3 border rounded-md w-full mt-1" />
-                            </label>
-                        </div>
-                    )}
-                    {activeSection === 'others' && (
-                        <div className="text-center p-8 text-gray-500 animate-fadeIn">
-                            <p>Additional fields and options will be available here in the future.</p>
-                        </div>
-                    )}
+                    {activeSection === 'description' && ( <div className="animate-fadeIn"> <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} onChange={handleInputChange} required rows={6} className="p-3 border rounded-md w-full" /> </div> )}
+                    {activeSection === 'sales' && ( <VariantManager options={formState.variantOptions} variants={formState.variants} onOptionsChange={handleVariantOptionsChange} onVariantsChange={handleVariantsChange}/> )}
+                    {activeSection === 'others' && ( <div className="text-center p-8 text-gray-500 animate-fadeIn"> <p>Additional fields and options will be available here in the future.</p> </div> )}
                 </div>
 
                 <div className="flex justify-end gap-4 mt-6 pt-6 border-t">
@@ -653,31 +489,143 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
     );
 };
 
-const PlaceholderView: React.FC<{ section: string }> = ({ section }) => (
-    <div className="text-center bg-gray-50 p-12 rounded-lg border-dashed border-2">
-        <h2 className="text-2xl font-semibold text-gray-700 mb-2">{section}</h2>
-        <p className="text-gray-500">This feature is coming soon.</p>
-    </div>
-);
+const VariantManager: React.FC<{
+    options: ProductVariantOption[];
+    variants: ProductVariant[];
+    onOptionsChange: (options: ProductVariantOption[]) => void;
+    onVariantsChange: (variants: ProductVariant[]) => void;
+}> = ({ options, variants, onOptionsChange, onVariantsChange }) => {
 
-const BrandManagementView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-    <div>
-        <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-semibold">Brand Management</h2>
-            <button
-                onClick={onBack}
-                className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 font-semibold"
-            >
-                &larr; Back to Products
-            </button>
-        </div>
-        <div className="text-center bg-gray-50 p-12 rounded-lg border-dashed border-2">
-            <h2 className="text-2xl font-semibold text-gray-700 mb-2">Manage Brands</h2>
-            <p className="text-gray-500">Functionality to add, edit, and delete brands will be implemented here.</p>
-        </div>
-    </div>
-);
+    useEffect(() => {
+        const combinations = generateVariantCombinations(options);
+        
+        const newVariants = combinations.map(combo => {
+            const name = Object.values(combo).join(' / ') || 'Default';
 
+            // Find best matching existing variant to preserve data
+            let bestMatch = null;
+            let maxMatchCount = -1;
+            for (const v of variants) {
+                const isSubset = Object.entries(v.options).every(([key, value]) => combo[key] === value);
+                if (isSubset) {
+                    const matchCount = Object.keys(v.options).length;
+                    if (matchCount > maxMatchCount) {
+                        maxMatchCount = matchCount;
+                        bestMatch = v;
+                    }
+                }
+            }
+            
+            const existingVariant = bestMatch;
+            
+            return {
+                id: existingVariant?.id || '',
+                productId: existingVariant?.productId || '',
+                name,
+                price: existingVariant?.price || 0,
+                sku: existingVariant?.sku || '',
+                gtin: existingVariant?.gtin || null,
+                weight: existingVariant?.weight || 0,
+                stock: existingVariant?.stock || 0,
+                imageUrls: existingVariant?.imageUrls || [],
+                options: combo,
+            };
+        });
+        
+        // Only update if the variants have actually changed to prevent infinite loops.
+        if (JSON.stringify(newVariants) !== JSON.stringify(variants)) {
+            onVariantsChange(newVariants);
+        }
+    }, [options, variants, onVariantsChange]);
+
+    const handleAddOption = () => onOptionsChange([...options, { name: '', values: [] }]);
+    const handleOptionNameChange = (index: number, name: string) => {
+        const newOptions = [...options];
+        newOptions[index].name = name;
+        onOptionsChange(newOptions);
+    };
+    const handleAddOptionValue = (optionIndex: number, value: string) => {
+        if (!value) return;
+        const newOptions = [...options];
+        const newValues = [...newOptions[optionIndex].values, { value }];
+        // Prevent duplicate values
+        if (newOptions[optionIndex].values.some(v => v.value.toLowerCase() === value.toLowerCase())) return;
+        newOptions[optionIndex].values = newValues;
+        onOptionsChange(newOptions);
+    };
+    const handleRemoveOptionValue = (optionIndex: number, valueToRemove: string) => {
+        const newOptions = [...options];
+        newOptions[optionIndex].values = newOptions[optionIndex].values.filter(v => v.value !== valueToRemove);
+        onOptionsChange(newOptions);
+    };
+    const handleRemoveOption = (optionIndex: number) => {
+        onOptionsChange(options.filter((_, i) => i !== optionIndex));
+    };
+
+    const handleVariantChange = (index: number, field: keyof ProductVariant, value: any) => {
+        const newVariants = [...variants];
+        (newVariants[index] as any)[field] = value;
+        onVariantsChange(newVariants);
+    };
+
+    return (
+        <div className="space-y-6 animate-fadeIn">
+            {/* Option Configuration */}
+            <div className="p-4 border rounded-lg bg-white">
+                <h3 className="font-semibold mb-2">Product Options</h3>
+                <div className="space-y-4">
+                    {options.map((option, optIndex) => (
+                        <div key={optIndex} className="p-3 border rounded-md">
+                            <div className="flex gap-2 items-center">
+                                <input value={option.name} onChange={(e) => handleOptionNameChange(optIndex, e.target.value)} placeholder="Option Name (e.g., Size)" className="p-2 border rounded-md flex-grow" />
+                                <button type="button" onClick={() => handleRemoveOption(optIndex)} className="text-red-500 font-bold text-xl">&times;</button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {option.values.map((val) => ( <span key={val.value} className="bg-gray-200 text-gray-700 px-2 py-1 rounded-md text-sm flex items-center gap-1"> {val.value} <button type="button" onClick={() => handleRemoveOptionValue(optIndex, val.value)}>&times;</button> </span> ))}
+                                <input type="text" placeholder="Add value" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddOptionValue(optIndex, e.currentTarget.value); e.currentTarget.value = ''; } }} className="p-1 border rounded-md text-sm" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <button type="button" onClick={handleAddOption} className="mt-4 text-pink-600 text-sm font-semibold">+ Add another option</button>
+            </div>
+
+            {/* Variants Table */}
+            {variants.length > 0 && (
+                 <div className="overflow-x-auto">
+                    <table className="min-w-full bg-white text-sm">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="py-2 px-3 text-left">Variant</th>
+                                <th className="py-2 px-3 text-left">Price</th>
+                                <th className="py-2 px-3 text-left">SKU</th>
+                                <th className="py-2 px-3 text-left">GTIN</th>
+                                <th className="py-2 px-3 text-left">Weight (g)</th>
+                                <th className="py-2 px-3 text-left">Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {variants.map((variant, index) => (
+                                <tr key={variant.name} className="border-b">
+                                    <td className="py-2 px-3 font-medium">{variant.name}</td>
+                                    <td className="py-2 px-3"><input type="number" value={variant.price} onChange={e => handleVariantChange(index, 'price', parseFloat(e.target.value))} className="w-24 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" value={variant.sku} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" value={variant.gtin ?? ''} onChange={e => handleVariantChange(index, 'gtin', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="number" value={variant.weight} onChange={e => handleVariantChange(index, 'weight', parseFloat(e.target.value))} className="w-20 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="number" value={variant.stock} onChange={e => handleVariantChange(index, 'stock', parseInt(e.target.value, 10))} className="w-20 p-1 border rounded-md" /></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+const PlaceholderView: React.FC<{ section: string }> = ({ section }) => ( <div className="text-center bg-gray-50 p-12 rounded-lg border-dashed border-2"> <h2 className="text-2xl font-semibold text-gray-700 mb-2">{section}</h2> <p className="text-gray-500">This feature is coming soon.</p> </div> );
+const BrandManagementView: React.FC<{ onBack: () => void }> = ({ onBack }) => ( <div> <div className="flex justify-between items-center mb-4"> <h2 className="text-2xl font-semibold">Brand Management</h2> <button onClick={onBack} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 font-semibold" > &larr; Back to Products </button> </div> <div className="text-center bg-gray-50 p-12 rounded-lg border-dashed border-2"> <h2 className="text-2xl font-semibold text-gray-700 mb-2">Manage Brands</h2> <p className="text-gray-500">Functionality to add, edit, and delete brands will be implemented here.</p> </div> </div> );
 
 // #endregion
 
@@ -685,34 +633,12 @@ const AdminView: React.FC = () => {
   const [activeView, setActiveView] = useState('orders');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  const handleEditProduct = (product: Product) => {
-    setEditingProduct(product);
-    setActiveView('addProduct'); // Switch to the form view
-  };
+  const handleEditProduct = (product: Product) => { setEditingProduct(product); setActiveView('addProduct'); };
+  const handleFormFinish = () => { setEditingProduct(null); setActiveView('products'); }
+  const handleAddNewProduct = () => { setEditingProduct(null); setActiveView('addProduct'); };
+  const handleManageBrands = () => { setActiveView('brandManagement'); };
 
-  const handleFormFinish = () => {
-    setEditingProduct(null);
-    setActiveView('products'); // Go back to the product list
-  }
-  
-  const handleAddNewProduct = () => {
-    setEditingProduct(null);
-    setActiveView('addProduct');
-  };
-  
-  const handleManageBrands = () => {
-    setActiveView('brandManagement');
-  };
-
-  const navItems = {
-      'orders': 'Orders',
-      'products': 'Product',
-      'marketing': 'Marketing Centre',
-      'customerservice': 'Customer Service',
-      'finance': 'Finance',
-      'data': 'Data',
-      'shop': 'Shop'
-  };
+  const navItems = { 'orders': 'Orders', 'products': 'Product', 'marketing': 'Marketing Centre', 'customerservice': 'Customer Service', 'finance': 'Finance', 'data': 'Data', 'shop': 'Shop' };
 
   const renderActiveView = () => {
     switch(activeView) {
@@ -732,29 +658,12 @@ const AdminView: React.FC = () => {
   return (
     <div className="bg-white p-8 rounded-lg shadow-xl">
       <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
-      
       <div className="flex flex-wrap border-b mb-6 gap-2">
         {Object.entries(navItems).map(([key, value]) => (
-            <button
-                key={key}
-                onClick={() => setActiveView(key)}
-                className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                    (activeView === key || 
-                     (activeView === 'addProduct' && key === 'products') ||
-                     (activeView === 'brandManagement' && key === 'products')
-                    )
-                    ? 'border-b-2 border-pink-500 text-pink-600 bg-pink-50'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-            >
-                {value}
-            </button>
+            <button key={key} onClick={() => setActiveView(key)} className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${ (activeView === key || (activeView === 'addProduct' && key === 'products') || (activeView === 'brandManagement' && key === 'products') ) ? 'border-b-2 border-pink-500 text-pink-600 bg-pink-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100' }`} > {value} </button>
         ))}
       </div>
-      
-      <div className="mt-6">
-        {renderActiveView()}
-      </div>
+      <div className="mt-6"> {renderActiveView()} </div>
     </div>
   );
 };

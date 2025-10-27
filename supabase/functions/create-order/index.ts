@@ -1,6 +1,5 @@
 // supabase/functions/create-order/index.ts
 
-// FIX: Added Deno declaration for TypeScript and imported `serve` for the HTTP server.
 declare const Deno: {
   env: { get(key: string): string | undefined; };
 };
@@ -9,14 +8,13 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from '@supabase/supabase-js'
 import type { CartItem, CustomerDetails, ShippingOption } from '../../../types.ts'
 
-// Define the expected structure of the incoming request body
 interface RequestBody {
   customerDetails: CustomerDetails;
   cartItems: CartItem[];
   shippingOption: ShippingOption;
   subtotal: number;
   total: number;
-  midtransResult: any; // The full result object from Midtrans
+  midtransResult: any;
 }
 
 const corsHeaders = {
@@ -40,26 +38,20 @@ serve(async (req) => {
       midtransResult,
     }: RequestBody = await req.json();
 
-    // Validate essential data
     if (!customerDetails || !cartItems || !shippingOption || !total || !midtransResult) {
       throw new Error("Missing required order information.");
     }
     
-    // Create a Supabase client with the service role key to bypass RLS
-    // This is secure because this function is run on the server, not the client
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
     
-    // Prepare the arguments for our PostgreSQL function
     const args = {
-      // Customer details
       customer_first_name: customerDetails.firstName,
       customer_last_name: customerDetails.lastName,
       customer_email: customerDetails.email,
       customer_phone: customerDetails.phone,
-      // Address details
       address_street: customerDetails.address,
       address_province_id: customerDetails.province.id,
       address_province_name: customerDetails.province.name,
@@ -70,19 +62,18 @@ serve(async (req) => {
       address_subdistrict_id: customerDetails.subdistrict?.id,
       address_subdistrict_name: customerDetails.subdistrict?.name,
       address_postal_code: customerDetails.postalCode,
-      // Order details
       order_subtotal: subtotal,
       order_shipping_cost: shippingOption.cost,
       order_total: total,
       order_shipping_provider: shippingOption.name,
       order_shipping_service: shippingOption.service,
-      // Order items (map to the structure expected by the JSONB parameter)
+      // Map cart items to the structure expected by the JSONB parameter
       order_items_json: cartItems.map(item => ({
-        id: item.id,
+        product_id: item.product.id,
+        variant_id: item.variant.id,
         quantity: item.quantity,
-        price: item.price
+        price: item.variant.price // Use variant price
       })),
-      // Payment details
       payment_midtrans_id: midtransResult.order_id,
       payment_status_code: midtransResult.status_code,
       payment_status_message: midtransResult.status_message,
@@ -90,13 +81,13 @@ serve(async (req) => {
       payment_raw_response: midtransResult,
     };
 
-    console.log("Calling create_full_order with args:", JSON.stringify(args, null, 2));
+    console.log("Calling create_full_order_with_variants with args:", JSON.stringify(args, null, 2));
 
-    // Call the PostgreSQL function to perform the transactional insert
-    const { data: newOrderId, error } = await supabaseAdmin.rpc('create_full_order', args);
+    // Call the updated PostgreSQL function
+    const { data: newOrderId, error } = await supabaseAdmin.rpc('create_full_order_with_variants', args);
 
     if (error) {
-      console.error('Error calling create_full_order function:', error);
+      console.error('Error calling create_full_order_with_variants function:', error);
       throw error;
     }
     
