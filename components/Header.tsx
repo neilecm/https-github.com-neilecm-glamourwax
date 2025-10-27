@@ -1,5 +1,7 @@
+
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
+import { useWishlist } from '../contexts/WishlistContext';
 import type { AppView } from '../App';
 import { View } from '../App';
 
@@ -9,6 +11,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
   const { cartCount } = useCart();
+  const { wishlistCount } = useWishlist();
 
   return (
     <header className="bg-white/80 backdrop-blur-md shadow-md fixed top-0 left-0 right-0 z-50">
@@ -22,6 +25,16 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
           </button>
           <button onClick={() => onNavigate({ name: View.ADMIN })} className="text-gray-600 hover:text-pink-500 transition-colors">
             Admin
+          </button>
+          <button onClick={() => onNavigate({ name: View.WISHLIST })} className="relative text-gray-600 hover:text-pink-500 transition-colors">
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 016.364 0L12 7.636l1.318-1.318a4.5 4.5 0 016.364 6.364L12 20.364l-7.682-7.682a4.5 4.5 0 010-6.364z" />
+             </svg>
+             {wishlistCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-pink-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                {wishlistCount}
+              </span>
+            )}
           </button>
           <button onClick={() => onNavigate({ name: View.CART })} className="relative text-gray-600 hover:text-pink-500 transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -3,6 +3,7 @@ import { supabaseService } from '../services/supabaseService';
 import { komerceService } from '../services/komerceService';
 import type { Product, FullOrder, OrderStatus } from '../types';
 import Spinner from '../components/Spinner';
+import MarketingView from './MarketingView'; // Import the new view
 
 // #region Helper Functions
 const base64ToBlob = (base64: string, contentType = '', sliceSize = 512) => {
@@ -169,11 +170,11 @@ const OrdersView: React.FC = () => {
     };
 
     if (isLoading) return <Spinner />;
-    if (error) return <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>;
 
     return (
         <div>
             <h2 className="text-2xl font-semibold mb-4">My Orders</h2>
+            {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>}
             <div className="overflow-x-auto">
                 <table className="min-w-full bg-white text-sm">
                     <thead className="bg-gray-100">
@@ -207,6 +208,9 @@ const OrdersView: React.FC = () => {
                                         <span className={`capitalize px-2 py-1 text-xs font-semibold rounded-full ${
                                             order.status === 'paid' ? 'bg-blue-100 text-blue-800' : 
                                             order.status === 'shipped' ? 'bg-green-100 text-green-800' :
+                                            order.status === 'pending_payment' ? 'bg-yellow-100 text-yellow-800' :
+                                            order.status === 'delivered' ? 'bg-purple-100 text-purple-800' :
+                                            order.status === 'failed' ? 'bg-red-100 text-red-800' :
                                             'bg-gray-200 text-gray-800'
                                         }`}>
                                             {order.status.replace('_', ' ')}
@@ -234,7 +238,11 @@ const OrdersView: React.FC = () => {
 };
 
 
-const ProductsView: React.FC<{ onEdit: (product: Product) => void; onAddNew: () => void; }> = ({ onEdit, onAddNew }) => {
+const ProductsView: React.FC<{
+  onEdit: (product: Product) => void;
+  onAddNew: () => void;
+  onManageBrands: () => void;
+}> = ({ onEdit, onAddNew, onManageBrands }) => {
     const [products, setProducts] = useState<Product[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -274,12 +282,20 @@ const ProductsView: React.FC<{ onEdit: (product: Product) => void; onAddNew: () 
         <div>
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-semibold">My Products</h2>
-                <button
-                    onClick={onAddNew}
-                    className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition-colors font-semibold"
-                >
-                    + Add New Product
-                </button>
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={onManageBrands}
+                        className="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors font-semibold"
+                    >
+                        Brand Management
+                    </button>
+                    <button
+                        onClick={onAddNew}
+                        className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition-colors font-semibold"
+                    >
+                        + Add New Product
+                    </button>
+                </div>
             </div>
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg mb-4">{error}</div>}
              <div className="overflow-x-auto">
@@ -394,6 +410,24 @@ const PlaceholderView: React.FC<{ section: string }> = ({ section }) => (
     </div>
 );
 
+const BrandManagementView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+    <div>
+        <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-semibold">Brand Management</h2>
+            <button
+                onClick={onBack}
+                className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 font-semibold"
+            >
+                &larr; Back to Products
+            </button>
+        </div>
+        <div className="text-center bg-gray-50 p-12 rounded-lg border-dashed border-2">
+            <h2 className="text-2xl font-semibold text-gray-700 mb-2">Manage Brands</h2>
+            <p className="text-gray-500">Functionality to add, edit, and delete brands will be implemented here.</p>
+        </div>
+    </div>
+);
+
 
 // #endregion
 
@@ -415,6 +449,10 @@ const AdminView: React.FC = () => {
     setEditingProduct(null);
     setActiveView('addProduct');
   };
+  
+  const handleManageBrands = () => {
+    setActiveView('brandManagement');
+  };
 
   const navItems = {
       'orders': 'Orders',
@@ -429,9 +467,10 @@ const AdminView: React.FC = () => {
   const renderActiveView = () => {
     switch(activeView) {
         case 'orders': return <OrdersView />;
-        case 'products': return <ProductsView onEdit={handleEditProduct} onAddNew={handleAddNewProduct} />;
+        case 'products': return <ProductsView onEdit={handleEditProduct} onAddNew={handleAddNewProduct} onManageBrands={handleManageBrands} />;
         case 'addProduct': return <ProductForm product={editingProduct} onFinish={handleFormFinish} />;
-        case 'marketing': return <PlaceholderView section="Marketing Centre" />;
+        case 'brandManagement': return <BrandManagementView onBack={() => setActiveView('products')} />;
+        case 'marketing': return <MarketingView />;
         case 'customerservice': return <PlaceholderView section="Customer Service" />;
         case 'finance': return <PlaceholderView section="Finance" />;
         case 'data': return <PlaceholderView section="Data" />;
@@ -450,7 +489,10 @@ const AdminView: React.FC = () => {
                 key={key}
                 onClick={() => setActiveView(key)}
                 className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                    (activeView === key || (activeView === 'addProduct' && key === 'products'))
+                    (activeView === key || 
+                     (activeView === 'addProduct' && key === 'products') ||
+                     (activeView === 'brandManagement' && key === 'products')
+                    )
                     ? 'border-b-2 border-pink-500 text-pink-600 bg-pink-50'
                     : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                 }`}

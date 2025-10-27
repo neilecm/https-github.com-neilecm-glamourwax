@@ -76,3 +76,25 @@ export interface FullOrder {
   customers: Customer | null;
   order_items: OrderItemWithProduct[];
 }
+
+// Meta Marketing API Types
+export interface MetaAdAccount {
+  id: string;
+  name: string;
+}
+
+export interface MetaCampaign {
+  id: string;
+  name: string;
+  status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED';
+  objective: string;
+  insights?: MetaCampaignInsights; // Optional, to be merged later
+}
+
+export interface MetaCampaignInsights {
+  spend: string;
+  impressions: string;
+  clicks: string;
+  cpc: string; // Cost per click
+  ctr: string; // Click-through rate
+}

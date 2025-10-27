@@ -1,5 +1,7 @@
+
 import React, { useState, useCallback } from 'react';
 import { CartProvider } from './contexts/CartContext';
+import { WishlistProvider } from './contexts/WishlistContext';
 import Header from './components/Header';
 import HomeView from './views/HomeView';
 import ProductDetailView from './views/ProductDetailView';
@@ -7,6 +9,7 @@ import CartView from './views/CartView';
 import CheckoutView from './views/CheckoutView';
 import OrderConfirmationView from './views/OrderConfirmationView';
 import AdminView from './views/AdminView';
+import WishlistView from './views/WishlistView';
 import Footer from './components/Footer';
 import type { Product } from './types';
 import PaymentPendingView from './views/PaymentPendingView';
@@ -21,6 +24,7 @@ export enum View {
   ADMIN,
   PENDING,
   FAILED,
+  WISHLIST,
 }
 
 export type AppView =
@@ -31,7 +35,8 @@ export type AppView =
   | { name: View.CONFIRMATION; orderId: string }
   | { name: View.ADMIN }
   | { name: View.PENDING; orderId: string }
-  | { name: View.FAILED; message: string };
+  | { name: View.FAILED; message: string }
+  | { name: View.WISHLIST };
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
@@ -65,6 +70,8 @@ const App: React.FC = () => {
         return <PaymentFailedView errorMessage={currentView.message} onBackToHome={() => navigate({ name: View.HOME })} onRetry={() => navigate({ name: View.CART })} />;
       case View.ADMIN:
         return <AdminView />;
+      case View.WISHLIST:
+        return <WishlistView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
       default:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
     }
@@ -72,13 +79,15 @@ const App: React.FC = () => {
 
   return (
     <CartProvider>
-      <div className="bg-gray-50 min-h-screen text-gray-800">
-        <Header onNavigate={navigate} />
-        <main className="container mx-auto px-4 py-8 pt-24">
-          {renderView()}
-        </main>
-        <Footer />
-      </div>
+      <WishlistProvider>
+        <div className="bg-gray-50 min-h-screen text-gray-800">
+          <Header onNavigate={navigate} />
+          <main className="container mx-auto px-4 py-8 pt-24">
+            {renderView()}
+          </main>
+          <Footer />
+        </div>
+      </WishlistProvider>
     </CartProvider>
   );
 };

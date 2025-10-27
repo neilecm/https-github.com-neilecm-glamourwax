@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import type { Product } from '../types';
 import { useCart } from '../contexts/CartContext';
+import { useWishlist } from '../contexts/WishlistContext';
 import Spinner from '../components/Spinner';
 
 interface ProductDetailViewProps {
@@ -15,6 +16,7 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
   const [isLoading, setIsLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const { addToCart } = useCart();
+  const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist();
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -32,6 +34,15 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
       }
   };
 
+  const handleWishlistToggle = () => {
+    if (!product) return;
+    if (isInWishlist(product.id)) {
+      removeFromWishlist(product.id);
+    } else {
+      addToWishlist(product);
+    }
+  };
+
   if (isLoading) {
     return <Spinner />;
   }
@@ -39,6 +50,8 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
   if (!product) {
     return <div className="text-center">Product not found.</div>;
   }
+
+  const isWishlisted = isInWishlist(product.id);
 
   return (
     <div className="bg-white p-8 rounded-lg shadow-xl">
@@ -65,12 +78,23 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ productId, onBack
             />
           </div>
           
-          <button 
-            onClick={handleAddToCart}
-            className="w-full bg-pink-500 text-white py-3 rounded-lg text-lg font-semibold hover:bg-pink-600 transition-colors"
-          >
-            Add to Cart
-          </button>
+          <div className="flex items-center gap-4">
+             <button 
+                onClick={handleAddToCart}
+                className="flex-grow bg-pink-500 text-white py-3 rounded-lg text-lg font-semibold hover:bg-pink-600 transition-colors"
+             >
+                Add to Cart
+             </button>
+             <button
+                onClick={handleWishlistToggle}
+                className={`p-3 border rounded-lg transition-colors ${isWishlisted ? 'bg-pink-100 border-pink-500 text-pink-500' : 'border-gray-300 text-gray-500 hover:bg-gray-100'}`}
+                aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+             >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill={isWishlisted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 016.364 0L12 7.636l1.318-1.318a4.5 4.5 0 016.364 6.364L12 20.364l-7.682-7.682a4.5 4.5 0 010-6.364z" />
+                </svg>
+             </button>
+          </div>
         </div>
       </div>
     </div>
