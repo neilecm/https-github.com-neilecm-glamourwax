@@ -57,7 +57,6 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
   const handleProvinceChange = async (provinceId: string) => {
     const province = provinces.find(p => p.id.toString() === provinceId);
     setSelectedProvince(province ? { id: province.id.toString(), name: province.name } : null);
-    // Reset all subsequent dropdowns
     setSelectedCity(null); setCities([]);
     setSelectedDistrict(null); setDistricts([]);
     setSelectedSubdistrict(null); setSubdistricts([]);
@@ -80,7 +79,6 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
   const handleCityChange = async (cityId: string) => {
     const city = cities.find(c => c.id.toString() === cityId);
     setSelectedCity(city ? { id: city.id.toString(), name: city.name } : null);
-    // Reset subsequent dropdowns
     setSelectedDistrict(null); setDistricts([]);
     setSelectedSubdistrict(null); setSubdistricts([]);
     setShippingOptions([]); setSelectedShipping(null);
@@ -99,24 +97,20 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     }
   };
 
-  // **NEW LOGIC**: Fetch shipping costs when a district is selected
   const handleDistrictChange = async (districtId: string) => {
     const district = districts.find(d => d.id.toString() === districtId);
     setSelectedDistrict(district ? { id: district.id.toString(), name: district.name } : null);
-    // Reset subsequent dropdowns
     setSelectedSubdistrict(null); setSubdistricts([]);
     setShippingOptions([]); setSelectedShipping(null);
 
     if (!districtId) return;
 
-    // Fetch subdistricts for address completion
     setIsLoading(prev => ({ ...prev, subdistricts: true }));
     rajaOngkirService.getSubdistricts(districtId)
       .then(setSubdistricts)
-      .catch(() => { /* a failure here is non-critical */ })
+      .catch(() => {})
       .finally(() => setIsLoading(prev => ({ ...prev, subdistricts: false })));
 
-    // **CRITICAL CHANGE**: Fetch shipping costs now
     setIsLoading(prev => ({ ...prev, shipping: true }));
     setError(null);
     try {
@@ -162,31 +156,40 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
         subdistrict: selectedSubdistrict,
     };
     
+    const subtotal = cartTotal;
+    const total = subtotal + selectedShipping.cost;
+    
     try {
-        const token = await midtransService.createTransaction(fullCustomerDetails, cartItems, selectedShipping.cost, cartTotal);
+        const token = await midtransService.createTransaction(fullCustomerDetails, cartItems, selectedShipping.cost, subtotal);
         
+        const handlePaymentResult = async (result: any) => {
+          try {
+            await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, subtotal, total, result);
+            clearCart();
+            if (result.status_code === '200') {
+              onOrderSuccess(result.order_id);
+            } else if (result.status_code === '201') {
+              onOrderPending(result.order_id);
+            } else {
+              onOrderFailed(result.status_message || 'Payment was not successful.');
+            }
+          } catch(err: any) {
+              console.error("Failed to save order to database:", err);
+              onOrderFailed("Your payment was processed, but we had trouble saving your order. Please contact support with your Order ID: " + result.order_id);
+          }
+        };
+
         midtransService.openPaymentGateway(
             token,
-            async (result) => { // onSuccess
-                console.log("Payment successful, creating order...", result);
-                const order = await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, cartTotal + selectedShipping.cost, 'paid');
-                clearCart();
-                onOrderSuccess(order.id);
-            },
-            async (result) => { // onPending
-                console.log("Payment pending, creating order...", result);
-                // Create an order record with 'pending' status for tracking
-                await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, cartTotal + selectedShipping.cost, 'pending');
-                clearCart();
-                onOrderPending(result.order_id);
-            },
+            handlePaymentResult, // onSuccess
+            handlePaymentResult, // onPending
             (result) => { // onError
                 console.log("Payment failed.", result);
                 onOrderFailed(result.status_message || 'Please try again or use a different payment method.');
+                setIsLoading(prev => ({ ...prev, payment: false }));
             },
             () => { // onClose
                 console.log("Payment popup closed by user.");
-                // User closed the popup, so we stop the loading indicator.
                 setIsLoading(prev => ({ ...prev, payment: false }));
             }
         );
@@ -266,7 +269,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
                                         <p className="text-sm text-gray-500">{opt.description} (est. {opt.etd})</p>
                                     </div>
                                     <span className="font-semibold">Rp{opt.cost.toLocaleString('id-ID')}</span>
-                                </label>
+                                 </label>
                             ))}
                         </div>
                     </div>

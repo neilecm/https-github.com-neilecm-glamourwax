@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Product, Order, CartItem, CustomerDetails, ShippingOption } from '../types';
+import type { Product, CartItem, CustomerDetails, ShippingOption, FullOrder } from '../types';
 
 // Helper to convert database snake_case to application camelCase
 const fromSupabase = (dbProduct: any): Product => ({
@@ -51,8 +51,6 @@ export const supabaseService = {
     const fileName = `${Date.now()}-${file.name.replace(/\s/g, '-')}`;
     const filePath = `public/${fileName}`;
 
-    // Note: Ensure you have a 'product-images' bucket in your Supabase Storage.
-    // Set RLS policies to allow public reads and authenticated uploads.
     const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
 
     if (uploadError) {
@@ -70,8 +68,6 @@ export const supabaseService = {
   },
   
   insertProduct: async (productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
-    // Note: Ensure RLS policies on the 'products' table allow insert operations
-    // for authenticated users.
     const { data, error } = await supabase
         .from('products')
         .insert([toSupabase(productData)])
@@ -87,31 +83,60 @@ export const supabaseService = {
   },
 
   createOrder: async (
-      customer: CustomerDetails, 
-      items: CartItem[], 
-      shipping: ShippingOption, 
+      customerDetails: CustomerDetails, 
+      cartItems: CartItem[], 
+      shippingOption: ShippingOption,
+      subtotal: number, 
       total: number,
-      status: Order['status'] = 'paid'
-    ): Promise<Order> => {
+      midtransResult: any,
+    ): Promise<{ orderId: string }> => {
     
-    const newOrderData = {
-        id: `order_${Date.now()}`,
-        customer,
-        items,
-        shipping,
-        total,
-        status,
-    };
-
-    // Note: Ensure RLS policies on the 'orders' table allow insert operations.
-    const { error } = await supabase.from('orders').insert([newOrderData]);
+    console.log("Invoking 'create-order' Supabase function...");
+    const { data, error } = await supabase.functions.invoke('create-order', {
+        body: {
+            customerDetails,
+            cartItems,
+            shippingOption,
+            subtotal,
+            total,
+            midtransResult
+        },
+    });
     
     if (error) {
-        console.error('Error creating order:', error.message, error);
-        throw new Error(`Failed to save order. Supabase error: ${error.message}. Check your RLS policies for the 'orders' table.`);
+        console.error('Error creating order via function:', error);
+        throw new Error(`Failed to save order. Supabase function error: ${error.message}.`);
     }
-    
-    console.log(`Supabase: Order created with status '${status}'`, newOrderData);
-    return newOrderData;
+
+    console.log("Order creation function returned:", data);
+    return data;
+  },
+
+  getOrders: async (): Promise<FullOrder[]> => {
+    // FIX: The query is updated to use the table name 'customers' as the key for the joined data.
+    // This removes ambiguity and helps Supabase's query builder correctly
+    // identify and use the foreign key relationship defined in the database.
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        status,
+        total_amount,
+        created_at,
+        customers!customer_id (
+          first_name,
+          last_name,
+          email
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching orders:', error);
+      throw new Error(`Failed to fetch orders. Supabase error: ${error.message}`);
+    }
+
+    return data as FullOrder[];
   },
 };
