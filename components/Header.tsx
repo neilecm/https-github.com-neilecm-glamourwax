@@ -1,6 +1,3 @@
-
-
-
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -24,6 +21,12 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
         <nav className="flex items-center space-x-6">
           <button onClick={() => onNavigate({ name: View.HOME })} className="text-gray-600 hover:text-pink-500 transition-colors">
             Shop
+          </button>
+          <button 
+            onClick={() => window.open('https://www.youtube.com/results?search_query=brazilian+waxing+tutorial', '_blank')} 
+            className="text-gray-600 hover:text-pink-500 transition-colors"
+          >
+            Brazilian Waxing Tutorial
           </button>
           <button onClick={() => onNavigate({ name: View.CONTACT })} className="text-gray-600 hover:text-pink-500 transition-colors">
             Contact
