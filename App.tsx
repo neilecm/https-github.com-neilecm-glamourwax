@@ -1,5 +1,4 @@
 
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { CartProvider } from './contexts/CartContext';
 import { WishlistProvider } from './contexts/WishlistContext';
@@ -52,29 +51,43 @@ export type AppView =
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
-  const [intendedView, setIntendedView] = useState<AppView | null>(null); // State to hold desired view pre-login
-  const { session, loading } = useAuth();
+  const [intendedView, setIntendedView] = useState<AppView | null>(null);
+  const { session, loading, isAdmin } = useAuth();
 
   const navigate = useCallback((view: AppView) => {
     // Protected route logic
-    if (view.name === View.TUTORIAL && !session) {
-        setIntendedView(view); // Store the view the user wanted to access
+    const protectedViews: View[] = [View.TUTORIAL];
+    if (protectedViews.includes(view.name) && !session) {
+        setIntendedView(view);
         setCurrentView({ name: View.AUTH });
+    } else if (view.name === View.ADMIN && (!session || !isAdmin)) {
+        // Admin-only route.
+        if (!session) {
+            // If not logged in at all, go to login first
+            setIntendedView(view); 
+            setCurrentView({ name: View.AUTH });
+        } else {
+            // Logged in but not an admin, just go home.
+            setCurrentView({ name: View.HOME });
+        }
     } else {
         setCurrentView(view);
     }
     window.scrollTo(0, 0);
-  }, [session]);
+  }, [session, isAdmin]);
 
   // This effect handles redirection after a successful login.
   useEffect(() => {
-    // When the session becomes available (user logs in) AND they are on the AuthView,
-    // redirect them to their originally intended page, or the tutorial as a default.
     if (session && currentView.name === View.AUTH) {
-      navigate(intendedView || { name: View.TUTORIAL });
-      setIntendedView(null); // Clean up
+      // If the intended view was admin and the user is NOT an admin, redirect home.
+      if (intendedView?.name === View.ADMIN && !isAdmin) {
+          navigate({ name: View.HOME });
+      } else {
+          navigate(intendedView || { name: View.HOME });
+      }
+      setIntendedView(null);
     }
-  }, [session, currentView.name, navigate, intendedView]);
+  }, [session, currentView.name, navigate, intendedView, isAdmin]);
 
 
   const renderView = () => {
@@ -104,7 +117,8 @@ const AppContent: React.FC = () => {
       case View.FAILED:
         return <PaymentFailedView errorMessage={currentView.message} onBackToHome={() => navigate({ name: View.HOME })} onRetry={() => navigate({ name: View.CART })} />;
       case View.ADMIN:
-        return <AdminView />;
+        // Double check auth and admin status before rendering
+        return session && isAdmin ? <AdminView /> : <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
       case View.WISHLIST:
         return <WishlistView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
       case View.CONTACT:

@@ -6,6 +6,7 @@ export interface Profile {
   id: string;
   full_name: string | null;
   phone_number: string | null;
+  role: string | null; // Added for role-based access
 }
 
 interface AuthContextType {
@@ -13,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  isAdmin: boolean; // Added for easy checking
   signOut: () => Promise<void>;
 }
 
@@ -27,7 +29,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id, full_name, phone_number, role') // Fetch the new role field
       .eq('id', userId)
       .single();
 
@@ -75,12 +77,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signOut = async () => {
     await supabase.auth.signOut();
   };
+  
+  const isAdmin = profile?.role === 'admin';
 
   const value = {
     session,
     user,
     profile,
     loading,
+    isAdmin, // Expose the isAdmin flag
     signOut,
   };
 

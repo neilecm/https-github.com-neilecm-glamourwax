@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -26,12 +27,6 @@ const UserMenu: React.FC<{ onNavigate: (view: AppView) => void }> = ({ onNavigat
             {isOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
                     <button
-                        onClick={() => { onNavigate({ name: View.ADMIN }); setIsOpen(false); }}
-                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    >
-                        Admin Dashboard
-                    </button>
-                    <button
                         onClick={handleLogout}
                         className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                     >
@@ -46,7 +41,7 @@ const UserMenu: React.FC<{ onNavigate: (view: AppView) => void }> = ({ onNavigat
 const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
   const { cartCount } = useCart();
   const { wishlistCount } = useWishlist();
-  const { session } = useAuth();
+  const { session, isAdmin } = useAuth();
 
   return (
     <header className="bg-white/80 backdrop-blur-md shadow-md fixed top-0 left-0 right-0 z-50">
@@ -59,11 +54,19 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
             Shop
           </button>
           <button 
-            onClick={() => onNavigate(session ? { name: View.TUTORIAL } : { name: View.AUTH })} 
+            onClick={() => onNavigate({ name: View.TUTORIAL })} 
             className="text-gray-600 hover:text-pink-500 transition-colors"
           >
             AI Waxing Tutor
           </button>
+          {session && isAdmin && (
+            <button 
+              onClick={() => onNavigate({ name: View.ADMIN })} 
+              className="text-gray-600 hover:text-pink-500 transition-colors"
+            >
+              Admin Dashboard
+            </button>
+          )}
           <button onClick={() => onNavigate({ name: View.CONTACT })} className="text-gray-600 hover:text-pink-500 transition-colors">
             Contact
           </button>

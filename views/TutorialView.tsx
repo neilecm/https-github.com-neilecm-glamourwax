@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { GoogleGenAI } from "@google/genai";
+import Spinner from '../components/Spinner';
 
 // Accordion Item Component for the FAQ section
 const AccordionItem: React.FC<{ title: string, children: React.ReactNode }> = ({ title, children }) => {
@@ -42,6 +44,112 @@ const TutorialStep: React.FC<{ number: string, title: string, children: React.Re
     </div>
 );
 
+// Chat Message Component
+const ChatMessage: React.FC<{ message: { role: 'user' | 'model'; text: string } }> = ({ message }) => {
+    const isUser = message.role === 'user';
+    return (
+        <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+            <div className={`max-w-md px-4 py-2 rounded-lg shadow ${isUser ? 'bg-pink-500 text-white' : 'bg-gray-200 text-gray-800'}`}>
+                <p>{message.text}</p>
+            </div>
+        </div>
+    );
+};
+
+
+const AITutor: React.FC = () => {
+    const [prompt, setPrompt] = useState('');
+    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model'; text: string }[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        // Scroll to the bottom of the chat history when a new message is added
+        if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+    }, [chatHistory]);
+    
+    const handleSend = async () => {
+        if (!prompt.trim() || isLoading) return;
+
+        const newUserMessage = { role: 'user' as const, text: prompt };
+        setChatHistory(prev => [...prev, newUserMessage]);
+        setPrompt('');
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const model = 'gemini-2.5-flash';
+            
+            const systemInstruction = "You are a friendly and professional esthetician specializing in at-home waxing with 'Cera Brasileira' products. Your name is Cera. Provide safe, encouraging, and clear advice. Keep answers concise and easy to understand for beginners. Always prioritize safety. If asked about topics outside of waxing, skincare, or beauty, politely decline to answer.";
+            
+            // Construct the contents from history for context
+            const contents = [
+                ...chatHistory.map(msg => ({
+                    role: msg.role,
+                    parts: [{ text: msg.text }],
+                })),
+                { role: 'user', parts: [{ text: prompt }] }
+            ];
+
+            const response = await ai.models.generateContent({
+                model,
+                contents,
+                config: {
+                    systemInstruction,
+                }
+            });
+            
+            const aiResponseText = response.text;
+            const newAiMessage = { role: 'model' as const, text: aiResponseText };
+            setChatHistory(prev => [...prev, newAiMessage]);
+
+        } catch (err: any) {
+            const errorMessage = "I'm having a little trouble connecting right now. Please try again in a moment.";
+            setError(errorMessage);
+            setChatHistory(prev => [...prev, { role: 'model', text: errorMessage }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <section className="mb-16 bg-gray-50 p-6 rounded-lg border border-gray-200">
+            <h2 className="text-3xl font-bold text-center mb-4">AI Waxing Tutor</h2>
+            <p className="text-center text-gray-600 mb-6">Your personal waxing expert. Ask me anything!</p>
+            <div className="max-w-2xl mx-auto">
+                <div ref={chatContainerRef} className="h-80 overflow-y-auto p-4 border rounded-lg bg-white mb-4">
+                    {chatHistory.length === 0 ? (
+                        <div className="flex items-center justify-center h-full">
+                            <p className="text-gray-400">Ask a question to get started, e.g., "How hot should the wax be?"</p>
+                        </div>
+                    ) : (
+                        chatHistory.map((msg, index) => <ChatMessage key={index} message={msg} />)
+                    )}
+                </div>
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                        placeholder="Ask me anything about waxing..."
+                        className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-300 focus:outline-none"
+                        disabled={isLoading}
+                    />
+                    <button onClick={handleSend} disabled={isLoading || !prompt.trim()} className="bg-pink-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-pink-600 disabled:bg-pink-300 transition-colors">
+                        {isLoading ? <Spinner /> : 'Send'}
+                    </button>
+                </div>
+                {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
+            </div>
+        </section>
+    );
+};
+
 
 const TutorialView: React.FC = () => {
   const { profile } = useAuth();
@@ -52,6 +160,9 @@ const TutorialView: React.FC = () => {
         <h1 className="text-4xl md:text-5xl font-bold text-gray-800">Your At-Home Brazilian Waxing Guide</h1>
         <p className="text-lg text-gray-600 mt-4">Welcome, {profile?.full_name?.split(' ')[0] || 'Glow Getter'}! Achieve salon-smooth results with confidence.</p>
       </header>
+      
+      {/* AI Tutor Component */}
+      <AITutor />
 
       {/* Section: Before You Begin */}
       <section className="mb-16">
