@@ -53,6 +53,45 @@ const CountdownTimer: React.FC<{ deadline: Date }> = ({ deadline }) => {
   );
 };
 
+const RenderOrderActions: React.FC<{
+  order: FullOrder;
+  isLoading: boolean;
+  onArrangePickup: (order: FullOrder) => void;
+  onPrintWaybill: (order: FullOrder) => void;
+}> = ({ order, isLoading, onArrangePickup, onPrintWaybill }) => {
+  switch (order.status) {
+    case 'paid':
+      return (
+        <button
+          onClick={() => onArrangePickup(order)}
+          disabled={isLoading}
+          className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-green-600 disabled:bg-gray-300 transition-colors w-32 text-center"
+        >
+          {isLoading ? <Spinner /> : 'Arrange Pickup'}
+        </button>
+      );
+    case 'shipped':
+      return (
+        <button
+          onClick={() => onPrintWaybill(order)}
+          disabled={isLoading || !order.awb_number}
+          className="bg-indigo-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-indigo-600 disabled:bg-gray-300 transition-colors w-32 text-center"
+        >
+          {isLoading ? <Spinner /> : 'Print Waybill'}
+        </button>
+      );
+    case 'pending_payment':
+      return <p className="text-xs text-yellow-600">Awaiting Payment</p>;
+    case 'delivered':
+      return <p className="text-xs text-green-600">Order Completed</p>;
+    case 'failed':
+      return <p className="text-xs text-red-600">Order Failed</p>;
+    default:
+      return <p className="text-xs text-gray-500">-</p>;
+  }
+};
+
+
 const OrdersView: React.FC = () => {
     const [orders, setOrders] = useState<FullOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -149,7 +188,6 @@ const OrdersView: React.FC = () => {
                     <tbody>
                         {orders.map(order => {
                             const deadline = getShippingDeadline(order);
-                            const isLoadingAction = actionLoading[order.id];
                             return (
                                 <tr key={order.id} className="border-b hover:bg-gray-50 align-top">
                                     <td className="py-3 px-4">
@@ -177,22 +215,12 @@ const OrdersView: React.FC = () => {
                                     </td>
                                     <td className="py-3 px-4 font-mono text-xs">{order.awb_number || 'N/A'}</td>
                                     <td className="py-3 px-4">
-                                        <div className="flex flex-col items-start gap-2">
-                                            <button 
-                                              onClick={() => handleArrangePickup(order)} 
-                                              disabled={order.status !== 'paid' || isLoadingAction} 
-                                              className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors w-32 text-center"
-                                            >
-                                              {isLoadingAction ? <Spinner /> : 'Arrange Pickup'}
-                                            </button>
-                                            <button 
-                                              onClick={() => handlePrintWaybill(order)}
-                                              disabled={order.status !== 'shipped' || isLoadingAction}
-                                              className="bg-indigo-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-indigo-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed w-32 text-center"
-                                            >
-                                              {isLoadingAction ? <Spinner /> : 'Print Waybill'}
-                                            </button>
-                                        </div>
+                                      <RenderOrderActions
+                                        order={order}
+                                        isLoading={actionLoading[order.id]}
+                                        onArrangePickup={handleArrangePickup}
+                                        onPrintWaybill={handlePrintWaybill}
+                                      />
                                     </td>
                                 </tr>
                             );
