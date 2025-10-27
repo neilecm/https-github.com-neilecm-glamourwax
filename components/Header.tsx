@@ -62,7 +62,7 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
             onClick={() => onNavigate(session ? { name: View.TUTORIAL } : { name: View.AUTH })} 
             className="text-gray-600 hover:text-pink-500 transition-colors"
           >
-            Brazilian Waxing Tutorial
+            AI Waxing Tutor
           </button>
           <button onClick={() => onNavigate({ name: View.CONTACT })} className="text-gray-600 hover:text-pink-500 transition-colors">
             Contact
