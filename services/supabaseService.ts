@@ -9,6 +9,7 @@ import type {
   FullOrder,
   OrderStatus,
   ProductVariant,
+  ContactFormData,
 } from '../types';
 
 // Type for product data before it's inserted (no ID or createdAt)
@@ -326,5 +327,21 @@ export const supabaseService = {
       throw new Error(`Failed to update order status. Supabase error: ${error.message}`);
     }
     return data as FullOrder;
-  }
+  },
+
+  // Send a contact form message
+  async sendContactMessage(formData: ContactFormData): Promise<{ success: boolean }> {
+    const { data, error } = await supabase.functions.invoke('send-contact-email', {
+      body: formData,
+    });
+
+    if (error) {
+      console.error('Error sending contact message:', error);
+      // Attempt to get a more specific error from the function's response
+      const errorMessage = error.context?.error_cause?.error || `Failed to send message. Supabase function error: ${error.message}`;
+      throw new Error(errorMessage);
+    }
+
+    return data;
+  },
 };

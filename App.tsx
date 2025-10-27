@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback } from 'react';
 import { CartProvider } from './contexts/CartContext';
 import { WishlistProvider } from './contexts/WishlistContext';
@@ -14,6 +15,7 @@ import Footer from './components/Footer';
 import type { Product } from './types';
 import PaymentPendingView from './views/PaymentPendingView';
 import PaymentFailedView from './views/PaymentFailedView';
+import ContactView from './views/ContactView';
 
 export enum View {
   HOME,
@@ -25,6 +27,7 @@ export enum View {
   PENDING,
   FAILED,
   WISHLIST,
+  CONTACT,
 }
 
 export type AppView =
@@ -36,7 +39,8 @@ export type AppView =
   | { name: View.ADMIN }
   | { name: View.PENDING; orderId: string }
   | { name: View.FAILED; message: string }
-  | { name: View.WISHLIST };
+  | { name: View.WISHLIST }
+  | { name: View.CONTACT };
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });
@@ -72,6 +76,8 @@ const App: React.FC = () => {
         return <AdminView />;
       case View.WISHLIST:
         return <WishlistView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
+      case View.CONTACT:
+        return <ContactView />;
       default:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
     }
@@ -85,7 +91,7 @@ const App: React.FC = () => {
           <main className="container mx-auto px-4 py-8 pt-24">
             {renderView()}
           </main>
-          <Footer />
+          <Footer onNavigate={navigate} />
         </div>
       </WishlistProvider>
     </CartProvider>

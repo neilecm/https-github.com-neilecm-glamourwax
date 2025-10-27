@@ -1,7 +1,13 @@
 
-import React from 'react';
 
-const Footer: React.FC = () => {
+import React from 'react';
+import { AppView, View } from '../App';
+
+interface FooterProps {
+  onNavigate: (view: AppView) => void;
+}
+
+const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   return (
     <footer className="bg-white mt-16">
       <div className="container mx-auto px-4 py-8">
@@ -13,9 +19,9 @@ const Footer: React.FC = () => {
           <div>
             <h3 className="font-semibold text-gray-700 mb-4">Quick Links</h3>
             <ul>
-              <li><a href="#" className="text-gray-600 hover:text-pink-500">About Us</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-pink-500">Contact</a></li>
-              <li><a href="#" className="text-gray-600 hover:text-pink-500">FAQ</a></li>
+              <li><button onClick={() => alert('About Us page coming soon!')} className="text-gray-600 hover:text-pink-500">About Us</button></li>
+              <li><button onClick={() => onNavigate({ name: View.CONTACT })} className="text-gray-600 hover:text-pink-500">Contact</button></li>
+              <li><button onClick={() => alert('FAQ page coming soon!')} className="text-gray-600 hover:text-pink-500">FAQ</button></li>
             </ul>
           </div>
           <div>

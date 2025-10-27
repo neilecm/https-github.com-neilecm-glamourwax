@@ -128,3 +128,10 @@ export interface MetaCampaignInsights {
   cpc: string; // Cost per click
   ctr: string; // Click-through rate
 }
+
+export interface ContactFormData {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}
