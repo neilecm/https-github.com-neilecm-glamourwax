@@ -62,10 +62,9 @@ serve(async (req) => {
     }
     
     // --- 3. Update the Database ---
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
     const { data: order, error: findError } = await supabaseAdmin
         .from('orders')
@@ -82,7 +81,6 @@ serve(async (req) => {
     // Idempotency check: Don't update if status is already correct
     if (order.status === newStatus) {
         console.log(`Order ${order_id} is already in status '${newStatus}'. No update needed.`);
-        // FIX: Still try to submit to Komerce and send email, in case those steps failed previously.
     } else {
       const { error: updateError } = await supabaseAdmin
         .from('orders')
@@ -103,17 +101,24 @@ serve(async (req) => {
     if (newStatus === 'paid') {
       console.log(`Payment successful for order ${order_id}. Submitting to Komerce and sending email...`);
 
-      // 1. Submit the order to Komerce to get a shipping number
-      const { error: komerceError } = await supabaseAdmin.functions.invoke('submit-order-to-komerce', {
-          body: { orderId: order.id },
+      // --- 1. Submit the order to Komerce using a robust fetch call ---
+      const functionUrl = `${supabaseUrl}/functions/v1/submit-order-to-komerce`;
+      const invokeResponse = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+              'Authorization': `Bearer ${serviceRoleKey}`,
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ orderId: order.id }),
       });
-      if (komerceError) {
-          console.error(`CRITICAL: Failed to submit order ${order.id} to Komerce after payment. Manual action required. Error:`, komerceError.message);
+      if (!invokeResponse.ok) {
+          const errorText = await invokeResponse.text();
+          console.error(`CRITICAL: Failed to invoke submit-order-to-komerce. Status: ${invokeResponse.status}. Response: ${errorText}`);
       } else {
-          console.log(`Successfully submitted order ${order.id} to Komerce.`);
+          console.log(`Successfully invoked submit-order-to-komerce for order ${order.id}.`);
       }
 
-      // 2. Send confirmation email to the customer
+      // --- 2. Send confirmation email to the customer ---
       const { error: emailError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
           body: { order_id: order.id },
       });

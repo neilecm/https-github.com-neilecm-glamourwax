@@ -81,15 +81,25 @@ const RenderOrderActions: React.FC<{
 }> = ({ order, isLoading, onArrangePickup, onPrintWaybill, onCheckStatus }) => {
   switch (order.status) {
     case 'paid':
-      return (
-        <button
-          onClick={() => onArrangePickup(order)}
-          disabled={isLoading}
-          className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-green-600 disabled:bg-gray-300 transition-colors w-32 text-center"
-        >
-          {isLoading ? <Spinner /> : 'Arrange Pickup'}
-        </button>
-      );
+      // If the order is paid, check if it has been submitted to Komerce yet.
+      if (order.komerce_order_no) {
+        return (
+          <button
+            onClick={() => onArrangePickup(order)}
+            disabled={isLoading}
+            className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-green-600 disabled:bg-gray-300 transition-colors w-32 text-center"
+          >
+            {isLoading ? <Spinner /> : 'Arrange Pickup'}
+          </button>
+        );
+      } else {
+        // If not yet submitted, show a processing state.
+        return (
+           <p className="text-xs text-gray-500 italic w-32 text-center">
+             Processing...
+           </p>
+        );
+      }
     case 'shipped':
       return (
         <button

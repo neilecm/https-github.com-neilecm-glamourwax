@@ -65,10 +65,9 @@ serve(async (req) => {
     }
 
     // --- 4. Update the Database if Status has Changed ---
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
     const { data: order, error: findError } = await supabaseAdmin
         .from('orders')
@@ -82,7 +81,6 @@ serve(async (req) => {
 
     if (order.status === newStatus) {
         console.log(`Order ${order_id} is already in the correct state ('${newStatus}').`);
-        // FIX: Even if status is correct, we should still try to submit to komerce just in case it failed before.
     } else {
         const { error: updateError } = await supabaseAdmin
             .from('orders')
@@ -97,19 +95,24 @@ serve(async (req) => {
     if (newStatus === 'paid') {
       console.log(`Payment confirmed for order ${order_id}. Triggering post-payment actions...`);
       
-      // Submit order to shipping partner
-      // FIX: Manually stringify the body to prevent potential silent serialization issues
-      // when one function invokes another. This is a more robust way to make the call.
-      const { error: komerceError } = await supabaseAdmin.functions.invoke('submit-order-to-komerce', {
-        body: JSON.stringify({ orderId: order.id }),
+      // --- Submit order to shipping partner using a robust fetch call ---
+      const functionUrl = `${supabaseUrl}/functions/v1/submit-order-to-komerce`;
+      const invokeResponse = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+              'Authorization': `Bearer ${serviceRoleKey}`,
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ orderId: order.id }),
       });
-      if (komerceError) {
-        console.error(`CRITICAL: Failed to submit order ${order.id} to Komerce after manual status check. Manual action required. Error:`, komerceError.message);
+      if (!invokeResponse.ok) {
+          const errorText = await invokeResponse.text();
+          console.error(`CRITICAL: Failed to invoke submit-order-to-komerce. Status: ${invokeResponse.status}. Response: ${errorText}`);
       } else {
-        console.log(`Successfully submitted order ${order.id} to Komerce via manual check.`);
+          console.log(`Successfully invoked submit-order-to-komerce for order ${order.id} via manual check.`);
       }
 
-      // Invoke confirmation email
+      // --- Invoke confirmation email ---
       const { error: emailError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
           body: { order_id: order.id },
       });

@@ -15,6 +15,19 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/store';
 
+// Helper to format phone numbers to meet Komerce API requirements (must not start with '0' or '+')
+const sanitizePhoneNumber = (phone: string | null): string => {
+  if (!phone) return '';
+  let digits = phone.replace(/\D/g, ''); // Remove all non-numeric characters
+  if (digits.startsWith('0')) {
+    // Replace leading '0' with '62'
+    return `62${digits.substring(1)}`;
+  }
+  // If it already starts with '62' or '8', it's likely valid.
+  return digits;
+};
+
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
 
@@ -30,8 +43,6 @@ serve(async (req) => {
     if (!KOMERCE_API_KEY) { throw new Error("KOMERCE_API_KEY is not set in secrets."); }
 
     // --- 1. Fetch all required order data from local DB ---
-    // FIX: Use explicit join syntax (!shipping_address_id) to ensure the address is reliably fetched.
-    // The previous implicit join was failing, causing `orderData.addresses` to be null and crashing the function.
     const { data: orderData, error: fetchError } = await supabaseAdmin
       .from('orders')
       .select(`
@@ -55,11 +66,9 @@ serve(async (req) => {
     if (!orderData || !orderData.customers || !orderData.addresses) throw new Error(`Could not find complete order details for ID: ${orderId}`);
 
     // --- 2. Construct Komerce API Payload ---
-    // NOTE: Shipper details are hardcoded for this example. In production,
-    // these should come from environment variables or a settings table.
     const shipperDetails = {
         name: "Cera Brasileira Store",
-        phone: "81234567890",
+        phone: "81234567890", // Already in valid format
         destination_id: 1391, // Hardcoded: Denpasar Selatan
         address: "Jl. Cok Agung Tresna No.1, Denpasar, Bali",
         email: "shipping@cerabrasileira.com",
@@ -78,8 +87,6 @@ serve(async (req) => {
         subtotal: item.price * item.quantity,
     }));
 
-    const totalProductValue = orderDetails.reduce((sum: number, item: any) => sum + item.subtotal, 0);
-
     const komercePayload = {
       order_date: new Date(orderData.created_at).toISOString().split('T')[0],
       brand_name: shipperDetails.brand_name,
@@ -89,7 +96,7 @@ serve(async (req) => {
       shipper_address: shipperDetails.address,
       shipper_email: shipperDetails.email,
       receiver_name: `${orderData.customers.first_name} ${orderData.customers.last_name}`,
-      receiver_phone: orderData.customers.phone,
+      receiver_phone: sanitizePhoneNumber(orderData.customers.phone),
       receiver_destination_id: orderData.addresses.district_id,
       receiver_address: orderData.addresses.street,
       shipping: orderData.shipping_provider,

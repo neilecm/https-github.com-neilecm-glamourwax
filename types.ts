@@ -105,6 +105,7 @@ export interface FullOrder {
   shipping_provider: string;
   shipping_service: string;
   awb_number: string | null; // Added for Komerce AWB
+  komerce_order_no: string | null; // Komerce's official order number
   customers: Customer | null;
   order_items: OrderItemWithProduct[];
 }
