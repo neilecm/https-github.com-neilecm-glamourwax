@@ -91,7 +91,7 @@ export const supabaseService = {
    */
   async addProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
     const { error } = await supabase.functions.invoke('add-product', {
-      body: { productData }, // Wrap the payload to be consistent with other functions
+      body: productData, // Send the product data directly as the body
     });
     handleSupabaseError(error, 'adding new product');
   },

@@ -456,9 +456,19 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                 await supabaseService.updateProduct(product.id, formState);
             } else {
                 const payload = { ...formState };
-                // If no variants are configured, create a default one
+                // If no variants are configured, create a default one with a consistent shape.
                 if (payload.variants.length === 0) {
-                    payload.variants = [{ name: 'Default', price: 500, sku: null, gtin: null, weight: 0, stock: 0, imageUrls: [], options: {} }] as any;
+                    payload.variants = [{
+                        name: 'Default',
+                        price: 500,
+                        sku: null,
+                        gtin: null,
+                        weight: 0,
+                        stock: 0,
+                        imageUrls: [],
+                        videoUrl: null, // Ensure videoUrl is present
+                        options: {}
+                    }] as any;
                 }
                 await supabaseService.addProduct(payload as any);
             }

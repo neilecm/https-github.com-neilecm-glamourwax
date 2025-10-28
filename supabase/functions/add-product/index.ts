@@ -19,7 +19,7 @@ serve(async (req) => {
   }
 
   try {
-    const { productData } = await req.json();
+    const productData = await req.json();
 
     // --- Input Validation ---
     if (!productData || typeof productData !== 'object' || !productData.name || !productData.category) {
@@ -38,8 +38,8 @@ serve(async (req) => {
     const productToInsert = {
       name: productInfo.name,
       category: productInfo.category,
-      long_description: productInfo.longDescription,
-      variant_options: productInfo.variantOptions,
+      long_description: productInfo.longDescription || '', // Add fallback
+      variant_options: productInfo.variantOptions || [], // Add fallback
       image_urls: productInfo.imageUrls || [],
       video_url: productInfo.videoUrl || null,
     };
