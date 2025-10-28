@@ -92,6 +92,8 @@ serve(async (req) => {
 
     if (updateError) throw new Error(`Failed to update order status: ${updateError.message}`);
     
+    // --- 4. Log Payment and Trigger Confirmation Email ---
+    
     // Insert a record into the payments table for auditing purposes.
     const { error: paymentError } = await supabaseAdmin
       .from('payments')
@@ -105,6 +107,21 @@ serve(async (req) => {
       });
 
     if (paymentError) console.error(`Failed to log payment notification for order ${order_id}: ${paymentError.message}`);
+
+    // If payment was successful, invoke the email sending function
+    if (newStatus === 'paid') {
+      console.log(`Payment successful for order ${order_id}. Invoking confirmation email function...`);
+      const { error: invokeError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
+          body: { order_id: order.id },
+      });
+      if (invokeError) {
+          // This is a non-critical error. The payment is processed, but the email failed.
+          // Log it for monitoring, but don't fail the webhook response to Midtrans.
+          console.error(`Failed to invoke order confirmation email for order ${order.id}:`, invokeError.message);
+      } else {
+          console.log(`Successfully invoked email function for order ${order.id}.`);
+      }
+    }
 
     console.log(`Successfully updated order ${order_id} to status '${newStatus}'`);
     
