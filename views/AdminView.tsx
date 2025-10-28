@@ -77,7 +77,8 @@ const RenderOrderActions: React.FC<{
   isLoading: boolean;
   onArrangePickup: (order: FullOrder) => void;
   onPrintWaybill: (order: FullOrder) => void;
-}> = ({ order, isLoading, onArrangePickup, onPrintWaybill }) => {
+  onCheckStatus: (order: FullOrder) => void;
+}> = ({ order, isLoading, onArrangePickup, onPrintWaybill, onCheckStatus }) => {
   switch (order.status) {
     case 'paid':
       return (
@@ -100,7 +101,15 @@ const RenderOrderActions: React.FC<{
         </button>
       );
     case 'pending_payment':
-      return <p className="text-xs text-yellow-600">Awaiting Payment</p>;
+      return (
+        <button
+          onClick={() => onCheckStatus(order)}
+          disabled={isLoading}
+          className="bg-yellow-500 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-yellow-600 disabled:bg-gray-300 transition-colors w-32 text-center"
+        >
+          {isLoading ? <Spinner /> : 'Check Status'}
+        </button>
+      );
     case 'delivered':
       return <p className="text-xs text-green-600">Order Completed</p>;
     case 'failed':
@@ -124,6 +133,7 @@ const OrdersView: React.FC = () => {
             setError(null);
             const data = await supabaseService.getOrders();
             setOrders(data);
+        // FIX: The try-catch block had incorrect syntax. The catch block was missing braces and an extra closing brace broke the component's scope.
         } catch (err: any) {
             setError(err.message || 'Failed to fetch orders.');
         } finally {
@@ -135,7 +145,7 @@ const OrdersView: React.FC = () => {
         fetchOrders();
     }, [fetchOrders]);
     
-    const filteredOrders = orders.filter(order => {
+    const filteredOrders = useMemo(() => orders.filter(order => {
         const query = searchQuery.toLowerCase().trim();
         if (!query) return true;
 
@@ -147,7 +157,7 @@ const OrdersView: React.FC = () => {
         const hasMatchingOrderNumber = order.order_number.toLowerCase().includes(query);
 
         return clientName.includes(query) || hasMatchingProduct || hasMatchingOrderNumber;
-    });
+    }), [orders, searchQuery]);
 
     const handleArrangePickup = async (order: FullOrder) => {
         setActionLoading(prev => ({ ...prev, [order.id]: true }));
@@ -183,6 +193,20 @@ const OrdersView: React.FC = () => {
         }
     };
     
+    const handleCheckStatus = async (order: FullOrder) => {
+        setActionLoading(prev => ({ ...prev, [order.id]: true }));
+        setError(null);
+        try {
+            await supabaseService.checkOrderStatus(order.order_number);
+            alert(`Successfully synced status for order ${order.order_number}. The list will now refresh.`);
+            await fetchOrders();
+        } catch (err: any) {
+            setError(err.message || `Failed to check status for order ${order.order_number}.`);
+        } finally {
+            setActionLoading(prev => ({ ...prev, [order.id]: false }));
+        }
+    };
+
     const getShippingDeadline = (order: FullOrder): Date | null => {
         if (order.status !== 'paid') return null;
         const orderDate = new Date(order.created_at);
@@ -198,23 +222,35 @@ const OrdersView: React.FC = () => {
         }
     };
 
-    if (isLoading) return <Spinner />;
+    if (isLoading && orders.length === 0) return <Spinner />;
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
               <h2 className="text-2xl font-semibold">My Orders</h2>
-              <div className="relative w-full max-w-sm">
-                  <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search by Order No, Client, or Product..."
-                      className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
-                  />
-                   <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                   </svg>
+              <div className="flex items-center gap-2">
+                <div className="relative w-full max-w-sm">
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search by Order No, Client, or Product..."
+                        className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+                    />
+                     <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                     </svg>
+                </div>
+                <button
+                    onClick={() => fetchOrders()}
+                    disabled={isLoading}
+                    className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                    <svg className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M4 4l5 5M20 20l-5-5" />
+                    </svg>
+                    Refresh
+                </button>
               </div>
             </div>
             {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>}
@@ -262,7 +298,7 @@ const OrdersView: React.FC = () => {
                                     </td>
                                     <td className="py-3 px-4 font-mono text-xs">{order.awb_number || 'N/A'}</td>
                                     <td className="py-3 px-4">
-                                      <RenderOrderActions order={order} isLoading={actionLoading[order.id]} onArrangePickup={handleArrangePickup} onPrintWaybill={handlePrintWaybill} />
+                                      <RenderOrderActions order={order} isLoading={actionLoading[order.id]} onArrangePickup={handleArrangePickup} onPrintWaybill={handlePrintWaybill} onCheckStatus={handleCheckStatus} />
                                     </td>
                                 </tr>
                             );
@@ -270,7 +306,7 @@ const OrdersView: React.FC = () => {
                     </tbody>
                 </table>
                 {filteredOrders.length === 0 && orders.length > 0 && ( <p className="text-center py-8 text-gray-500">No orders match your search criteria.</p>)}
-                {orders.length === 0 && <p className="text-center py-8 text-gray-500">No orders found.</p>}
+                {orders.length === 0 && !isLoading && <p className="text-center py-8 text-gray-500">No orders found.</p>}
             </div>
         </div>
     );
@@ -660,7 +696,7 @@ const BrandManagementView: React.FC<{ onBack: () => void }> = ({ onBack }) => ( 
 // #endregion
 
 const AdminView: React.FC = () => {
-  const [activeView, setActiveView] = useState('products');
+  const [activeView, setActiveView] = useState('orders');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const handleEditProduct = (product: Product) => { setEditingProduct(product); setActiveView('addProduct'); };

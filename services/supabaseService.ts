@@ -150,6 +150,18 @@ export const supabaseService = {
   },
 
   /**
+   * Manually checks an order's status with Midtrans via a secure Edge Function.
+   */
+  async checkOrderStatus(orderNumber: string): Promise<{ status: string }> {
+    const { data, error } = await supabase.functions.invoke('check-midtrans-status', {
+      body: { orderNumber },
+    });
+    handleSupabaseError(error, `checking status for order ${orderNumber}`);
+    return data;
+  },
+
+
+  /**
    * Invokes the 'send-contact-email' edge function.
    */
   async sendContactMessage(formData: ContactFormData): Promise<void> {
