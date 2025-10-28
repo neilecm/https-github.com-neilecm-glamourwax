@@ -82,26 +82,37 @@ serve(async (req) => {
 
     if (order.status === newStatus) {
         console.log(`Order ${order_id} is already in the correct state ('${newStatus}').`);
-        return new Response(JSON.stringify({ status: newStatus, message: 'Status already up-to-date.' }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 
-        });
+        // FIX: Even if status is correct, we should still try to submit to komerce just in case it failed before.
+    } else {
+        const { error: updateError } = await supabaseAdmin
+            .from('orders')
+            .update({ status: newStatus })
+            .eq('id', order.id);
+
+        if (updateError) throw new Error(`Failed to update order status: ${updateError.message}`);
     }
 
-    const { error: updateError } = await supabaseAdmin
-        .from('orders')
-        .update({ status: newStatus })
-        .eq('id', order.id);
 
-    if (updateError) throw new Error(`Failed to update order status: ${updateError.message}`);
-
-    // --- 5. Trigger Confirmation Email if Payment was Successful ---
+    // --- 5. Trigger Post-Payment Actions if Payment was Successful ---
     if (newStatus === 'paid') {
-      console.log(`Payment confirmed for order ${order_id}. Invoking confirmation email function...`);
-      const { error: invokeError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
+      console.log(`Payment confirmed for order ${order_id}. Triggering post-payment actions...`);
+      
+      // Submit order to shipping partner
+      const { error: komerceError } = await supabaseAdmin.functions.invoke('submit-order-to-komerce', {
+        body: { orderId: order.id },
+      });
+      if (komerceError) {
+        console.error(`CRITICAL: Failed to submit order ${order.id} to Komerce after manual status check. Manual action required. Error:`, komerceError.message);
+      } else {
+        console.log(`Successfully submitted order ${order.id} to Komerce via manual check.`);
+      }
+
+      // Invoke confirmation email
+      const { error: emailError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
           body: { order_id: order.id },
       });
-      if (invokeError) {
-          console.error(`Failed to invoke order confirmation email for order ${order.id}:`, invokeError.message);
+      if (emailError) {
+          console.error(`Failed to invoke order confirmation email for order ${order.id}:`, emailError.message);
       }
     }
 

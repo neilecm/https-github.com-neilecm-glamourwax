@@ -127,22 +127,37 @@ const OrdersView: React.FC = () => {
     const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
     const [searchQuery, setSearchQuery] = useState('');
 
-    const fetchOrders = useCallback(async () => {
+    const fetchOrders = useCallback(async (isBackground = false) => {
         try {
-            setIsLoading(true);
+            if (!isBackground) {
+                setIsLoading(true);
+            }
             setError(null);
             const data = await supabaseService.getOrders();
             setOrders(data);
-        // FIX: The try-catch block had incorrect syntax. The catch block was missing braces and an extra closing brace broke the component's scope.
         } catch (err: any) {
             setError(err.message || 'Failed to fetch orders.');
         } finally {
-            setIsLoading(false);
+            if (!isBackground) {
+                setIsLoading(false);
+            }
         }
     }, []);
 
+    // Initial fetch
     useEffect(() => {
         fetchOrders();
+    }, [fetchOrders]);
+    
+    // Auto-refresh interval every 5 minutes
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            console.log("Auto-refreshing orders...");
+            fetchOrders(true); // Perform a background fetch
+        }, 5 * 60 * 1000); // 300,000 milliseconds = 5 minutes
+
+        // Cleanup on component unmount
+        return () => clearInterval(intervalId);
     }, [fetchOrders]);
     
     const filteredOrders = useMemo(() => orders.filter(order => {
@@ -543,7 +558,7 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                             </div>
                         </div>
                     )}
-                    {activeSection === 'description' && ( <div className="animate-fadeIn"> <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} onChange={handleInputChange} required rows={6} className="p-3 border rounded-md w-full" /> </div> )}
+                    {activeSection === 'description' && ( <div className="animate-fadeIn"> <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} required rows={6} className="p-3 border rounded-md w-full" /> </div> )}
                     {activeSection === 'sales' && ( <VariantManager options={formState.variantOptions} variants={formState.variants} onOptionsChange={handleVariantOptionsChange} onVariantsChange={handleVariantsChange}/> )}
                     {activeSection === 'others' && ( <div className="text-center p-8 text-gray-500 animate-fadeIn"> <p>Additional fields and options will be available here in the future.</p> </div> )}
                 </div>

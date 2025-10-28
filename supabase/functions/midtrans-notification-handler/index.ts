@@ -82,54 +82,54 @@ serve(async (req) => {
     // Idempotency check: Don't update if status is already correct
     if (order.status === newStatus) {
         console.log(`Order ${order_id} is already in status '${newStatus}'. No update needed.`);
-        return new Response('ok', { status: 200 });
-    }
-
-    const { error: updateError } = await supabaseAdmin
+        // FIX: Still try to submit to Komerce and send email, in case those steps failed previously.
+    } else {
+      const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update({ status: newStatus })
         .eq('id', order.id);
-
-    if (updateError) throw new Error(`Failed to update order status: ${updateError.message}`);
+      if (updateError) throw new Error(`Failed to update order status: ${updateError.message}`);
+    }
     
-    // --- 4. Log Payment and Trigger Confirmation Email ---
+    // --- 4. Log Payment and Trigger Post-Payment Actions ---
     
-    // Insert a record into the payments table for auditing purposes.
-    const { error: paymentError } = await supabaseAdmin
-      .from('payments')
-      .insert({
-        order_id: order.id,
-        midtrans_id: notification.transaction_id || order_id,
-        status_code: status_code,
-        status_message: notification.status_message,
-        payment_type: notification.payment_type,
+    const { error: paymentError } = await supabaseAdmin.from('payments').insert({
+        order_id: order.id, midtrans_id: notification.transaction_id || order_id, status_code,
+        status_message: notification.status_message, payment_type: notification.payment_type,
         raw_response: notification,
-      });
+    });
+    if (paymentError) console.error(`Failed to log payment for order ${order_id}: ${paymentError.message}`);
 
-    if (paymentError) console.error(`Failed to log payment notification for order ${order_id}: ${paymentError.message}`);
-
-    // If payment was successful, invoke the email sending function
     if (newStatus === 'paid') {
-      console.log(`Payment successful for order ${order_id}. Invoking confirmation email function...`);
-      const { error: invokeError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
+      console.log(`Payment successful for order ${order_id}. Submitting to Komerce and sending email...`);
+
+      // 1. Submit the order to Komerce to get a shipping number
+      const { error: komerceError } = await supabaseAdmin.functions.invoke('submit-order-to-komerce', {
+          body: { orderId: order.id },
+      });
+      if (komerceError) {
+          console.error(`CRITICAL: Failed to submit order ${order.id} to Komerce after payment. Manual action required. Error:`, komerceError.message);
+      } else {
+          console.log(`Successfully submitted order ${order.id} to Komerce.`);
+      }
+
+      // 2. Send confirmation email to the customer
+      const { error: emailError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
           body: { order_id: order.id },
       });
-      if (invokeError) {
-          // This is a non-critical error. The payment is processed, but the email failed.
-          // Log it for monitoring, but don't fail the webhook response to Midtrans.
-          console.error(`Failed to invoke order confirmation email for order ${order.id}:`, invokeError.message);
+      if (emailError) {
+          console.error(`Failed to invoke confirmation email for order ${order.id}:`, emailError.message);
       } else {
           console.log(`Successfully invoked email function for order ${order.id}.`);
       }
     }
 
-    console.log(`Successfully updated order ${order_id} to status '${newStatus}'`);
+    console.log(`Successfully processed notification for order ${order_id}.`);
     
     return new Response('Notification processed successfully.', { headers: corsHeaders, status: 200 });
 
   } catch (err) {
     console.error("Error in Midtrans notification handler:", err.message);
-    // Return 500 so Midtrans knows to retry (if it's a temporary issue).
     return new Response(JSON.stringify({ error: err.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
