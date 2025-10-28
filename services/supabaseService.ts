@@ -1,20 +1,23 @@
 // services/supabaseService.ts
 
 import { supabase } from './supabase';
-import type { Product, FullOrder, ContactFormData, ProductVariant } from '../types';
+import type { Product, FullOrder, ContactFormData } from '../types';
 
 // A generic helper to standardize error handling for Supabase calls
 const handleSupabaseError = (error: any, context: string) => {
   if (error) {
     console.error(`Error in ${context}:`, error.message);
-    // Provide a more user-friendly error message
-    throw new Error(`Database operation failed: ${context}. Please check application logs for details.`);
+    // Extract a more specific error from function invocation if possible
+    const functionError = (error as any).context?.error_cause?.error;
+    const errorMessage = functionError || `Database operation failed: ${context}. Please check application logs for details.`;
+    throw new Error(errorMessage);
   }
 };
 
 export const supabaseService = {
   /**
    * Fetches all products with their variants from the database.
+   * This is a read operation and is safe to call from the client.
    */
   async getProducts(): Promise<Product[]> {
     const { data, error } = await supabase
@@ -28,10 +31,8 @@ export const supabaseService = {
       .order('created_at', { ascending: false });
 
     handleSupabaseError(error, 'fetching products');
-    // Ensure variants is always an array
     const products = (data || []).map(p => ({ ...p, variants: p.variants || [] }));
     
-    // Map snake_case from DB to camelCase for the app
     return products.map(p => ({
       ...p,
       longDescription: p.long_description,
@@ -50,6 +51,7 @@ export const supabaseService = {
 
   /**
    * Fetches a single product by its ID, including its variants.
+   * This is a read operation and is safe to call from the client.
    */
   async getProductById(id: string): Promise<Product | null> {
     const { data, error } = await supabase
@@ -66,7 +68,6 @@ export const supabaseService = {
     handleSupabaseError(error, `fetching product with id ${id}`);
     if (data) {
         const p = { ...data, variants: data.variants || [] };
-        // Map snake_case to camelCase
         return {
           ...p,
           longDescription: p.long_description,
@@ -86,107 +87,32 @@ export const supabaseService = {
   },
 
   /**
-   * Adds a new product and its associated variants to the database.
+   * Invokes a secure Edge Function to add a new product and its variants.
    */
   async addProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
-    const { variants, ...productInfo } = productData;
-
-    // Map camelCase from app to snake_case for DB
-    const productToInsert = {
-        name: productInfo.name,
-        category: productInfo.category,
-        long_description: productInfo.longDescription,
-        variant_options: productInfo.variantOptions,
-        image_urls: productInfo.imageUrls,
-        video_url: productInfo.videoUrl,
-    };
-
-    const { data: newProduct, error: productError } = await supabase
-      .from('products')
-      .insert(productToInsert)
-      .select('id')
-      .single();
-
-    handleSupabaseError(productError, 'adding new product');
-    if (!newProduct) throw new Error('Failed to get ID for new product.');
-
-    if (variants && variants.length > 0) {
-      const variantsToInsert = variants.map(v => ({
-        ...v,
-        product_id: newProduct.id,
-        image_urls: v.imageUrls,
-        video_url: v.videoUrl
-      }));
-      const { error: variantError } = await supabase
-        .from('product_variants')
-        .insert(variantsToInsert);
-      
-      handleSupabaseError(variantError, 'adding product variants');
-    }
+    const { error } = await supabase.functions.invoke('add-product', {
+      body: { productData }, // Wrap the payload to be consistent with other functions
+    });
+    handleSupabaseError(error, 'adding new product');
   },
 
   /**
-   * Updates an existing product and its variants.
+   * Invokes a secure Edge Function to update an existing product and its variants.
    */
   async updateProduct(id: string, productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
-    const { variants, ...productInfo } = productData;
-
-    const productToUpdate = {
-        name: productInfo.name,
-        category: productInfo.category,
-        long_description: productInfo.longDescription,
-        variant_options: productInfo.variantOptions,
-        image_urls: productInfo.imageUrls,
-        video_url: productInfo.videoUrl,
-    };
-
-    const { error: productError } = await supabase
-      .from('products')
-      .update(productToUpdate)
-      .eq('id', id);
-    handleSupabaseError(productError, `updating product with id ${id}`);
-
-    if (variants) {
-      const { data: currentVariants, error: fetchError } = await supabase
-        .from('product_variants')
-        .select('id')
-        .eq('product_id', id);
-      handleSupabaseError(fetchError, 'fetching current variants for update');
-
-      const currentVariantIds = currentVariants?.map(v => v.id) || [];
-      const incomingVariantIds = variants.map(v => v.id).filter(Boolean);
-
-      const variantsToDelete = currentVariantIds.filter(vid => !incomingVariantIds.includes(vid));
-      if (variantsToDelete.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('product_variants')
-          .delete()
-          .in('id', variantsToDelete);
-        handleSupabaseError(deleteError, 'deleting old product variants');
-      }
-      
-      const variantsToUpsert = variants.map(v => ({
-        ...v,
-        product_id: id,
-        id: v.id || undefined, 
-        image_urls: v.imageUrls,
-        video_url: v.videoUrl
-      }));
-      
-      if (variantsToUpsert.length > 0) {
-          const { error: upsertError } = await supabase
-            .from('product_variants')
-            .upsert(variantsToUpsert, { onConflict: 'id' });
-          handleSupabaseError(upsertError, 'upserting product variants');
-      }
-    }
+    const { error } = await supabase.functions.invoke('update-product', {
+      body: { id, productData },
+    });
+    handleSupabaseError(error, `updating product with id ${id}`);
   },
 
   /**
-   * Deletes a product from the database.
+   * Invokes a secure Edge Function to delete a product.
    */
   async deleteProduct(id: string): Promise<void> {
-    const { error } = await supabase.from('products').delete().eq('id', id);
+    const { error } = await supabase.functions.invoke('delete-product', {
+      body: { id },
+    });
     handleSupabaseError(error, `deleting product with id ${id}`);
   },
 
@@ -231,7 +157,6 @@ export const supabaseService = {
     handleSupabaseError(error, 'fetching orders');
     if (!data) return [];
     
-    // Transform the data to match the FullOrder type expected by the frontend
     const transformedData = data.map(order => ({
       ...order,
       order_items: order.order_items.map((item: any) => ({

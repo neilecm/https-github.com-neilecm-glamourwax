@@ -406,6 +406,7 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
             setFormState({ name: product.name, category: product.category, imageUrls: product.imageUrls || [], videoUrl: product.videoUrl || null, longDescription: product.longDescription, variantOptions: product.variantOptions || [], variants: product.variants || [] });
         } else {
             setFormState(initialFormState);
+            setActiveSection('basic');
         }
     }, [product]);
     
@@ -426,7 +427,12 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
         e.preventDefault();
         setError(null);
 
-        // Basic validation
+        // --- Validation ---
+        if (!formState.name.trim() || !formState.category.trim()) {
+            setError("Product Name and Category are required.");
+            setActiveSection('basic');
+            return;
+        }
         if (formState.imageUrls.length === 0) {
             setError("Please upload at least one product image.");
             setActiveSection('basic');
@@ -437,14 +443,22 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
             setActiveSection('sales');
             return;
         }
+        const invalidVariant = formState.variants.find(v => v.price < 500);
+        if (invalidVariant) {
+            setError(`Price for variant "${invalidVariant.name}" must be at least Rp 500.`);
+            setActiveSection('sales');
+            return;
+        }
+        // --- End Validation ---
         
         try {
             if (product) {
                 await supabaseService.updateProduct(product.id, formState);
             } else {
                 const payload = { ...formState };
+                // If no variants are configured, create a default one
                 if (payload.variants.length === 0) {
-                    payload.variants = [{ name: 'Default', price: 0, sku: '', gtin: null, weight: 0, stock: 0, imageUrls: [], options: {} }] as any;
+                    payload.variants = [{ name: 'Default', price: 500, sku: null, gtin: null, weight: 0, stock: 0, imageUrls: [], options: {} }] as any;
                 }
                 await supabaseService.addProduct(payload as any);
             }
@@ -519,8 +533,8 @@ const VariantManager: React.FC<{
             // If it's a new combination, the ID should be undefined so the backend treats it as new
             const newVariantData = {
                 name,
-                price: existingVariant?.price || 0,
-                sku: existingVariant?.sku || '',
+                price: existingVariant?.price || 500,
+                sku: existingVariant?.sku || null,
                 gtin: existingVariant?.gtin || null,
                 weight: existingVariant?.weight || 0,
                 stock: existingVariant?.stock || 0,
@@ -603,7 +617,7 @@ const VariantManager: React.FC<{
                         <thead className="bg-gray-100">
                             <tr>
                                 <th className="py-2 px-3 text-left">Variant</th>
-                                <th className="py-2 px-3 text-left">Price</th>
+                                <th className="py-2 px-3 text-left">Price (Rp)</th>
                                 <th className="py-2 px-3 text-left">SKU</th>
                                 <th className="py-2 px-3 text-left">GTIN</th>
                                 <th className="py-2 px-3 text-left">Weight (g)</th>
@@ -614,8 +628,8 @@ const VariantManager: React.FC<{
                             {variants.map((variant, index) => (
                                 <tr key={variant.name} className="border-b">
                                     <td className="py-2 px-3 font-medium">{variant.name}</td>
-                                    <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="e.g. 69000" value={variant.price} onChange={e => handleVariantChange(index, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border rounded-md" /></td>
-                                    <td className="py-2 px-3"><input type="text" value={variant.sku} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="Min. 500" value={variant.price} onChange={e => handleVariantChange(index, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3"><input type="text" value={variant.sku ?? ''} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" value={variant.gtin ?? ''} onChange={e => handleVariantChange(index, 'gtin', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="e.g. 150" value={variant.weight} onChange={e => handleVariantChange(index, 'weight', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" inputMode="numeric" placeholder="e.g. 100" value={variant.stock} onChange={e => handleVariantChange(index, 'stock', parseInt(e.target.value, 10) || 0)} className="w-20 p-1 border rounded-md" /></td>
@@ -636,7 +650,7 @@ const BrandManagementView: React.FC<{ onBack: () => void }> = ({ onBack }) => ( 
 // #endregion
 
 const AdminView: React.FC = () => {
-  const [activeView, setActiveView] = useState('orders');
+  const [activeView, setActiveView] = useState('products');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const handleEditProduct = (product: Product) => { setEditingProduct(product); setActiveView('addProduct'); };

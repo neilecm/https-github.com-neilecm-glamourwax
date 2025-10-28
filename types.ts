@@ -15,7 +15,7 @@ export interface ProductVariant {
   productId: string;
   name: string; // e.g., "Small / Red"
   price: number;
-  sku: string;
+  sku: string | null;
   gtin?: string | null;
   weight: number; // in grams
   stock: number;
