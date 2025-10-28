@@ -135,45 +135,16 @@ export const supabaseService = {
   },
 
   /**
-   * Fetches all orders with detailed information about customers and items.
+   * Fetches all orders with detailed information by invoking a secure Edge Function.
+   * This is the secure way to get order data for the admin panel.
    */
   async getOrders(): Promise<FullOrder[]> {
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`
-        *,
-        customers (*),
-        order_items (
-          quantity,
-          price,
-          product_variants (
-            id, name,
-            products (id, name)
-          )
-        )
-      `)
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.functions.invoke('get-orders');
 
     handleSupabaseError(error, 'fetching orders');
-    if (!data) return [];
-    
-    const transformedData = data.map(order => ({
-      ...order,
-      order_items: order.order_items.map((item: any) => ({
-          quantity: item.quantity,
-          price: item.price,
-          products: item.product_variants && item.product_variants.products ? {
-            id: item.product_variants.products.id,
-            name: item.product_variants.products.name,
-            product_variants: {
-              id: item.product_variants.id,
-              name: item.product_variants.name,
-            },
-          } : null,
-      })),
-    }));
 
-    return transformedData as FullOrder[];
+    // The function now returns the data in the correct shape, so no client-side transformation is needed.
+    return data || [];
   },
 
   /**
