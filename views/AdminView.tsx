@@ -393,7 +393,7 @@ const MediaUploader: React.FC<{ urls: (string | null)[]; onUrlsChange: (newUrls:
 };
 
 type FormState = Omit<Product, 'id' | 'createdAt'>;
-const initialFormState: FormState = { name: '', category: '', imageUrls: [], videoUrl: null, longDescription: '', variantOptions: [], variants: [] };
+const initialFormState: FormState = { name: '', category: '', imageUrls: [], videoUrl: null, longDescription: '', variantOptions: [], variants: [], basePrice: 0 } as any;
 type ProductFormSection = 'basic' | 'description' | 'sales' | 'others';
 
 const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> = ({ product, onFinish }) => {
@@ -403,7 +403,7 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
 
     useEffect(() => {
         if (product) {
-            setFormState({ name: product.name, category: product.category, imageUrls: product.imageUrls || [], videoUrl: product.videoUrl || null, longDescription: product.longDescription, variantOptions: product.variantOptions || [], variants: product.variants || [] });
+            setFormState({ name: product.name, category: product.category, imageUrls: product.imageUrls || [], videoUrl: product.videoUrl || null, longDescription: product.longDescription, variantOptions: product.variantOptions || [], variants: product.variants || [], basePrice: (product as any).base_price ?? (product as any).basePrice ?? 0 } as any);
         } else {
             setFormState(initialFormState);
         }
@@ -438,13 +438,38 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
             return;
         }
         
+        // Clean and validate variant prices (accepts formats like "Rp 50.000")
+        const cleanedVariants = formState.variants.map(v => {
+            const raw = (v.price as any)?.toString?.() ?? '';
+            const cleaned = raw.replace(/[^0-9.]/g, '');
+            const priceNum = Number(cleaned);
+            return { ...v, price: Number.isFinite(priceNum) ? priceNum : 0 } as ProductVariant;
+        });
+
+        // Prevent submission if any variant price is invalid or below minimum
+        if (cleanedVariants.length > 0) {
+            const hasInvalid = cleanedVariants.some(v => !Number.isFinite(v.price) || v.price < MIN_PRICE_IDR);
+            if (hasInvalid) {
+                setError(`Please enter a valid price (>= Rp ${MIN_PRICE_IDR.toLocaleString('id-ID')}) for all variants.`);
+                setActiveSection('sales');
+                return;
+            }
+        }
+
         try {
             if (product) {
-                await supabaseService.updateProduct(product.id, formState);
+                await supabaseService.updateProduct(product.id, { ...formState, variants: cleanedVariants });
             } else {
-                const payload = { ...formState };
+                const payload = { ...formState, variants: cleanedVariants, basePrice: Number((formState as any).basePrice || 0) } as any;
                 if (payload.variants.length === 0) {
-                    payload.variants = [{ name: 'Default', price: 0, sku: '', gtin: null, weight: 0, stock: 0, imageUrls: [], options: {} }] as any;
+                    // If no variants configured, create a default one using base price when valid
+                    if (payload.basePrice && payload.basePrice >= MIN_PRICE_IDR) {
+                        payload.variants = [{ name: 'Default', price: payload.basePrice, sku: '', gtin: null, weight: 0, stock: 0, imageUrls: [], options: {} }] as any;
+                    } else {
+                        setError('Please add at least one variant with a valid price or set a valid Base Price.');
+                        setActiveSection('sales');
+                        return;
+                    }
                 }
                 await supabaseService.addProduct(payload as any);
             }
@@ -484,7 +509,7 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
                         </div>
                     )}
                     {activeSection === 'description' && ( <div className="animate-fadeIn"> <textarea name="longDescription" placeholder="Long Description" value={formState.longDescription} onChange={handleInputChange} required rows={6} className="p-3 border rounded-md w-full" /> </div> )}
-                    {activeSection === 'sales' && ( <VariantManager options={formState.variantOptions} variants={formState.variants} onOptionsChange={handleVariantOptionsChange} onVariantsChange={handleVariantsChange}/> )}
+                    {activeSection === 'sales' && ( <VariantManager options={formState.variantOptions} variants={formState.variants} onOptionsChange={handleVariantOptionsChange} onVariantsChange={handleVariantsChange} basePrice={Number((formState as any).basePrice || 0)} onBasePriceChange={(val:number)=> setFormState(prev => ({...prev, basePrice: val}) as any)} /> )}
                     {activeSection === 'others' && ( <div className="text-center p-8 text-gray-500 animate-fadeIn"> <p>Additional fields and options will be available here in the future.</p> </div> )}
                 </div>
 
@@ -497,12 +522,16 @@ const ProductForm: React.FC<{ product: Product | null; onFinish: () => void }> =
     );
 };
 
+const MIN_PRICE_IDR = 500; // minimum allowed price in IDR
+
 const VariantManager: React.FC<{
     options: ProductVariantOption[];
     variants: ProductVariant[];
     onOptionsChange: (options: ProductVariantOption[]) => void;
     onVariantsChange: (variants: ProductVariant[]) => void;
-}> = ({ options, variants, onOptionsChange, onVariantsChange }) => {
+    basePrice: number;
+    onBasePriceChange: (val: number) => void;
+}> = ({ options, variants, onOptionsChange, onVariantsChange, basePrice, onBasePriceChange }) => {
 
     useEffect(() => {
         const combinations = generateVariantCombinations(options);
@@ -570,12 +599,48 @@ const VariantManager: React.FC<{
 
     const handleVariantChange = (index: number, field: keyof ProductVariant, value: any) => {
         const newVariants = [...variants];
-        (newVariants[index] as any)[field] = value;
+        // Special handling for price: clean formatted input to numeric, clamp at 0
+        if (field === 'price') {
+            const raw = (value ?? '').toString();
+            const cleaned = raw.replace(/[^0-9.]/g, '');
+            const num = Number(cleaned);
+            (newVariants[index] as any)[field] = Number.isFinite(num) ? num : 0;
+        } else {
+            (newVariants[index] as any)[field] = value;
+        }
         onVariantsChange(newVariants);
     };
 
     return (
         <div className="space-y-6 animate-fadeIn">
+            {/* Base Price */}
+            <div className="p-4 border rounded-lg bg-white">
+                <h3 className="font-semibold mb-2">Base Price (IDR)</h3>
+                <div className="relative inline-flex items-center">
+                    <span className="absolute left-3 text-gray-600">Rp</span>
+                    <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="e.g. 69.000"
+                        value={basePrice}
+                        onChange={(e) => {
+                            const raw = e.target.value.toString();
+                            const cleaned = raw.replace(/[^0-9.]/g, '');
+                            const num = Number(cleaned);
+                            onBasePriceChange(Number.isFinite(num) ? num : 0);
+                        }}
+                        className={`w-40 pl-9 p-2 border rounded-md ${(!Number.isFinite(Number(basePrice)) || Number(basePrice) < MIN_PRICE_IDR) ? 'border-red-400' : ''}`}
+                    />
+                </div>
+                <div className="text-xs mt-1">
+                    {(!Number.isFinite(Number(basePrice)) || Number(basePrice) === 0) && (
+                        <span className="text-gray-500">Enter price in IDR, e.g. 69.000</span>
+                    )}
+                    {(Number.isFinite(Number(basePrice)) && Number(basePrice) > 0 && Number(basePrice) < MIN_PRICE_IDR) && (
+                        <span className="text-red-500">Price must be at least Rp {MIN_PRICE_IDR.toLocaleString('id-ID')}</span>
+                    )}
+                </div>
+            </div>
             {/* Option Configuration */}
             <div className="p-4 border rounded-lg bg-white">
                 <h3 className="font-semibold mb-2">Product Options</h3>
@@ -614,7 +679,29 @@ const VariantManager: React.FC<{
                             {variants.map((variant, index) => (
                                 <tr key={variant.name} className="border-b">
                                     <td className="py-2 px-3 font-medium">{variant.name}</td>
-                                    <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="e.g. 69000" value={variant.price} onChange={e => handleVariantChange(index, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border rounded-md" /></td>
+                                    <td className="py-2 px-3">
+                                        <div>
+                                            <div className="relative inline-flex items-center">
+                                                <span className="absolute left-2 text-gray-600">Rp</span>
+                                                <input
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    placeholder="e.g. 69.000"
+                                                    value={variant.price}
+                                                    onChange={e => handleVariantChange(index, 'price', e.target.value)}
+                                                    className={`w-32 pl-7 p-1 border rounded-md ${(!Number.isFinite(Number(variant.price)) || Number(variant.price) < MIN_PRICE_IDR) ? 'border-red-400' : ''}`}
+                                                />
+                                            </div>
+                                            <div className="text-xs mt-1">
+                                                {(!Number.isFinite(Number(variant.price)) || Number(variant.price) === 0) && (
+                                                    <span className="text-gray-500">Enter price in IDR, e.g. 69.000</span>
+                                                )}
+                                                {(Number.isFinite(Number(variant.price)) && Number(variant.price) > 0 && Number(variant.price) < MIN_PRICE_IDR) && (
+                                                    <span className="text-red-500">Price must be at least Rp {MIN_PRICE_IDR.toLocaleString('id-ID')}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </td>
                                     <td className="py-2 px-3"><input type="text" value={variant.sku} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" value={variant.gtin ?? ''} onChange={e => handleVariantChange(index, 'gtin', e.target.value)} className="w-32 p-1 border rounded-md" /></td>
                                     <td className="py-2 px-3"><input type="text" inputMode="decimal" placeholder="e.g. 150" value={variant.weight} onChange={e => handleVariantChange(index, 'weight', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded-md" /></td>
@@ -666,7 +753,7 @@ const AdminView: React.FC = () => {
       <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
       <div className="flex flex-wrap border-b mb-6 gap-2">
         {Object.entries(navItems).map(([key, value]) => (
-            <button key={key} onClick={() => setActiveView(key)} className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${ (activeView === key || (activeView === 'addProduct' && key === 'products') || (activeView === 'brandManagement' && key === 'products') ) ? 'border-b-2 border-pink-500 text-pink-600 bg-pink-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100' }`} > {value} </button>
+            <button key={key} onClick={() => setActiveView(key)} className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${ (activeView === key || (activeView === 'addProduct' && key === 'products') || (activeView === 'brandManagement' && key === 'products') ) ? 'border-b-2 border-[var(--brand-red)] text-[var(--brand-red)] bg-[#fff0f1]' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100' }`} > {value} </button>
         ))}
       </div>
       <div className="mt-6"> {renderActiveView()} </div>

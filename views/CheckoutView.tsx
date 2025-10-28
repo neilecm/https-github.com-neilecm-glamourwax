@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { rajaOngkirService } from '../services/rajaOngkirService';
-import { midtransService } from '../services/midtransService';
+// Replaced custom midtransService with direct function invoke + Snap loader
+import { buildMidtransPayload } from '../services/midtrans';
+import { loadSnap } from '../src/lib/loadSnap';
+import { createClient } from '@supabase/supabase-js';
 import { supabaseService } from '../services/supabaseService';
 import Spinner from '../components/Spinner';
 import type { Province, City, District, Subdistrict, ShippingOption, CustomerDetails } from '../types';
@@ -160,38 +163,60 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     const total = subtotal + selectedShipping.cost;
     
     try {
-        const token = await midtransService.createTransaction(fullCustomerDetails, cartItems, selectedShipping.cost, subtotal);
-        
+        // Build Midtrans payload and invoke function
+        const orderId = `order-cerabrasileira-${Date.now()}`;
+        const payload = buildMidtransPayload({
+          orderId,
+          customer: {
+            first_name: customer.firstName || 'Customer',
+            last_name: customer.lastName || '',
+            email: customer.email,
+            phone: customer.phone || ''
+          },
+          items: cartItems.map(ci => ({
+            id: ci.variant.sku || ci.product.id,
+            name: `${ci.product.name} ${ci.variant.name || ''}`.trim(),
+            price: ci.variant.price,
+            quantity: ci.quantity
+          }))
+        });
+
+        const supabaseFx = createClient(import.meta.env.VITE_SUPABASE_URL as string, import.meta.env.VITE_SUPABASE_ANON_KEY as string);
+        const { data, error } = await supabaseFx.functions.invoke('create-midtrans-transaction', { body: payload });
+        if (error) throw new Error(error.message);
+        const token = data.token as string;
+
         const handlePaymentResult = async (result: any) => {
           try {
             await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, subtotal, total, result);
             clearCart();
-            if (result.status_code === '200') {
-              onOrderSuccess(result.order_id);
-            } else if (result.status_code === '201') {
-              onOrderPending(result.order_id);
+            if (result?.transaction_status === 'settlement' || result?.transaction_status === 'capture' || result?.status_code === '200') {
+              onOrderSuccess(result?.order_id || orderId);
+            } else if (result?.transaction_status === 'pending' || result?.status_code === '201') {
+              onOrderPending(result?.order_id || orderId);
             } else {
               onOrderFailed(result.status_message || 'Payment was not successful.');
             }
           } catch(err: any) {
               console.error("Failed to save order to database:", err);
-              onOrderFailed("Your payment was processed, but we had trouble saving your order. Please contact support with your Order ID: " + result.order_id);
+              onOrderFailed("Your payment was processed, but we had trouble saving your order. Please contact support with your Order ID: " + (result?.order_id || orderId));
           }
         };
 
-        midtransService.openPaymentGateway(
-            token,
-            handlePaymentResult, // onSuccess
-            handlePaymentResult, // onPending
-            (result) => { // onError
-                console.log("Payment failed.", result);
-                onOrderFailed(result.status_message || 'Please try again or use a different payment method.');
-                setIsLoading(prev => ({ ...prev, payment: false }));
-            },
-            () => { // onClose
-                console.log("Payment popup closed by user.");
-                setIsLoading(prev => ({ ...prev, payment: false }));
-            }
+        const snap = await loadSnap(import.meta.env.VITE_MIDTRANS_CLIENT_KEY as string);
+        (snap as any).pay(
+          token,
+          handlePaymentResult, // onSuccess
+          handlePaymentResult, // onPending
+          (result: any) => { // onError
+            console.log("Payment failed.", result);
+            onOrderFailed(result.status_message || 'Please try again or use a different payment method.');
+            setIsLoading(prev => ({ ...prev, payment: false }));
+          },
+          () => { // onClose
+            console.log("Payment popup closed by user.");
+            setIsLoading(prev => ({ ...prev, payment: false }));
+          }
         );
 
     } catch (err: any) {

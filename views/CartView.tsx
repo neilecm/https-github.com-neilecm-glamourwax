@@ -18,8 +18,8 @@ const CartView: React.FC<CartViewProps> = ({ onCheckout }) => {
   }
 
   return (
-    <div className="bg-white p-8 rounded-lg shadow-xl">
-      <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
+    <div id="cart" className="bg-white p-8 rounded-lg shadow-xl">
+      <h1 className="text-3xl font-bold mb-6" style={{ color: 'var(--brand-red)' }}>Your Cart</h1>
       <div className="divide-y divide-gray-200">
         {cartItems.map(item => (
           <div key={item.cartItemId} className="flex items-center py-4">
@@ -52,7 +52,7 @@ const CartView: React.FC<CartViewProps> = ({ onCheckout }) => {
       <div className="mt-8 text-right">
         <h2 className="text-2xl font-bold">Total: Rp{cartTotal.toLocaleString('id-ID')}</h2>
         <p className="text-gray-500">Shipping calculated at checkout</p>
-        <button onClick={onCheckout} className="mt-4 bg-pink-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-pink-600 transition-colors">
+        <button onClick={onCheckout} className="mt-4 text-white px-8 py-3 rounded-lg font-semibold transition-colors" style={{ background: 'var(--brand-red)' }}>
           Proceed to Checkout
         </button>
       </div>

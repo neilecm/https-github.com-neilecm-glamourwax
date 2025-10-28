@@ -127,9 +127,30 @@ export const supabaseService = {
     // 1. Separate media URLs from the main product data to prevent inserting into the wrong table.
     const { variants, imageUrls, videoUrl, ...productData } = payload as any;
 
+    // Map camelCase to snake_case for DB, and ensure decimal price
+    const normalizedProduct = {
+      name: productData.name,
+      category: productData.category,
+      description: productData.description,
+      long_description: productData.longDescription ?? null,
+      currency: productData.currency ?? 'IDR',
+      // price: ensure number; if empty or NaN, set 0 to satisfy NOT NULL
+      price: Number(productData.price),
+      base_price: Number(productData.base_price ?? productData.basePrice ?? 0),
+      slug: productData.slug || null,
+      active: productData.active ?? true,
+    } as any;
+
+    if (!Number.isFinite(normalizedProduct.price)) {
+      normalizedProduct.price = 0;
+    }
+    if (!Number.isFinite(normalizedProduct.base_price)) {
+      normalizedProduct.base_price = 0;
+    }
+
     const { data: newProduct, error: productError } = await supabase
       .from('products')
-      .insert([productData])
+      .insert([normalizedProduct])
       .select()
       .single();
 
@@ -173,7 +194,11 @@ export const supabaseService = {
     
     const { data: updatedProduct, error: productError } = await supabase
       .from('products')
-      .update(productData)
+      .update({
+        ...productData,
+        long_description: (productData as any).longDescription ?? (productData as any).long_description,
+        base_price: Number((productData as any).base_price ?? (productData as any).basePrice ?? 0),
+      })
       .eq('id', id)
       .select()
       .single();

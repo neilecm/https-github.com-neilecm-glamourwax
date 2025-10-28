@@ -139,7 +139,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen text-gray-800">
+    <div className="min-h-screen" style={{ background: 'var(--natural-beige)', color: 'var(--dark-text)' }}>
       <Header onNavigate={navigate} />
       <main className="container mx-auto px-4 py-8 pt-24">
         {renderView()}

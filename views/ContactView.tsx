@@ -75,7 +75,7 @@ const ContactView: React.FC = () => {
               value={formData.name}
               onChange={handleInputChange}
               required
-              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
             />
           </div>
           <div>
@@ -87,7 +87,7 @@ const ContactView: React.FC = () => {
               value={formData.email}
               onChange={handleInputChange}
               required
-              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
             />
           </div>
         </div>
@@ -100,7 +100,7 @@ const ContactView: React.FC = () => {
             value={formData.subject}
             onChange={handleInputChange}
             required
-            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
+            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
           />
         </div>
         <div>
@@ -112,7 +112,7 @@ const ContactView: React.FC = () => {
             value={formData.message}
             onChange={handleInputChange}
             required
-            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
+            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
           />
         </div>
         <div className="flex justify-end items-center gap-4">
@@ -128,7 +128,7 @@ const ContactView: React.FC = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="inline-flex justify-center py-3 px-8 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-pink-500 hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:bg-pink-300"
+            className="inline-flex justify-center py-3 px-8 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-[var(--brand-red)] hover:bg-[#b0212c] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--brand-red)] disabled:bg-[#f6b3ba]"
           >
             {isLoading ? <Spinner /> : 'Send Message'}
           </button>
