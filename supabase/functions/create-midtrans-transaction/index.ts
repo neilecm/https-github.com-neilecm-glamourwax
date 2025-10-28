@@ -108,16 +108,47 @@ serve(async (req) => {
       throw new Error("MIDTRANS_SERVER_KEY not set in secrets.");
     }
 
+    // For reliability, recalculate total and prepare detailed payload for Midtrans
+    // Ensure all amounts are integers as required by Midtrans API.
+    const midtransItemDetails = [
+      ...cartItems.map((item: any) => ({
+        id: item.variant.id,
+        price: Math.round(item.variant.price),
+        quantity: item.quantity,
+        name: `${item.product.name} (${item.variant.name})`.substring(0, 50),
+      })),
+      {
+        id: 'SHIPPING',
+        price: Math.round(shippingOption.cost),
+        quantity: 1,
+        name: `Shipping: ${shippingOption.name}`.substring(0, 50),
+      }
+    ];
+
+    // The gross_amount MUST be the sum of the (price * quantity) of all items
+    const grossAmount = midtransItemDetails.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
     const midtransPayload = {
       transaction_details: {
         order_id: orderNumber,
-        gross_amount: total,
+        gross_amount: grossAmount,
       },
+      item_details: midtransItemDetails,
       customer_details: {
         first_name: customerDetails.firstName,
         last_name: customerDetails.lastName,
         email: customerDetails.email,
         phone: customerDetails.phone,
+        shipping_address: {
+            first_name: customerDetails.firstName,
+            last_name: customerDetails.lastName,
+            email: customerDetails.email,
+            phone: customerDetails.phone,
+            address: customerDetails.address,
+            city: customerDetails.city.name,
+            postal_code: customerDetails.postalCode,
+            country_code: 'IDN'
+        }
       },
     };
 
