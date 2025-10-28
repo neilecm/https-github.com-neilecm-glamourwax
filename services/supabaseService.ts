@@ -139,7 +139,9 @@ export const supabaseService = {
    * This is the secure way to get order data for the admin panel.
    */
   async getOrders(): Promise<FullOrder[]> {
-    const { data, error } = await supabase.functions.invoke('get-orders');
+    const { data, error } = await supabase.functions.invoke('get-orders', {
+      method: 'GET',
+    });
 
     handleSupabaseError(error, 'fetching orders');
 
