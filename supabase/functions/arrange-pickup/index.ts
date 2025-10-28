@@ -15,13 +15,23 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/pickup/request';
 
-function getPickupSchedule() {
-    const pickupDateTime = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours from now
+// Helper to get a pickup schedule 2 hours from now in WITA (UTC+8) timezone
+function getPickupScheduleWITA() {
+    const now = new Date();
+    // Calculate current time in WITA (UTC+8)
+    const witaOffsetInMs = 8 * 60 * 60 * 1000;
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const witaNow = new Date(utc + witaOffsetInMs);
+
+    // Add 2 hours for pickup
+    const pickupDateTime = new Date(witaNow.getTime() + 2 * 60 * 60 * 1000);
+
     const year = pickupDateTime.getFullYear();
     const month = (pickupDateTime.getMonth() + 1).toString().padStart(2, '0');
     const day = pickupDateTime.getDate().toString().padStart(2, '0');
     const hours = pickupDateTime.getHours().toString().padStart(2, '0');
     const minutes = pickupDateTime.getMinutes().toString().padStart(2, '0');
+    
     return {
         pickup_date: `${year}-${month}-${day}`,
         pickup_time: `${hours}:${minutes}`,
@@ -55,7 +65,7 @@ serve(async (req) => {
     const komerceOrderNo = order.komerce_order_no;
 
     // --- 2. Call Komerce API with the correct order number ---
-    const { pickup_date, pickup_time } = getPickupSchedule();
+    const { pickup_date, pickup_time } = getPickupScheduleWITA();
     const komercePayload = {
       pickup_date,
       pickup_time,

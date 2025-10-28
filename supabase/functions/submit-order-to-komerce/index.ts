@@ -15,6 +15,26 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/store';
 
+// Helper to get the current date and time in WITA (UTC+8)
+function getCurrentDateTimeInWITA() {
+  const now = new Date();
+  // WITA is UTC+8. getTimezoneOffset returns the difference in minutes between UTC and local time.
+  const witaOffsetInMs = 8 * 60 * 60 * 1000;
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const witaTime = new Date(utc + witaOffsetInMs);
+
+  const year = witaTime.getFullYear();
+  const month = (witaTime.getMonth() + 1).toString().padStart(2, '0');
+  const day = witaTime.getDate().toString().padStart(2, '0');
+  const hours = witaTime.getHours().toString().padStart(2, '0');
+  const minutes = witaTime.getMinutes().toString().padStart(2, '0');
+  
+  return {
+    date: `${year}-${month}-${day}`,
+    time: `${hours}:${minutes}`,
+  };
+}
+
 // Helper to format phone numbers to meet Komerce API requirements (must not start with '0' or '+')
 const sanitizePhoneNumber = (phone: string | null): string => {
   if (!phone) return '';
@@ -102,9 +122,12 @@ serve(async (req) => {
         qty: item.quantity,
         subtotal: item.price * item.quantity,
     }));
+    
+    const { date: orderDate, time: orderTime } = getCurrentDateTimeInWITA();
 
     const komercePayload = {
-      order_date: new Date(order.created_at).toISOString().split('T')[0],
+      order_date: orderDate,
+      order_time: orderTime,
       brand_name: shipperDetails.brand_name,
       shipper_name: shipperDetails.name,
       shipper_phone: shipperDetails.phone,
@@ -113,9 +136,9 @@ serve(async (req) => {
       shipper_email: shipperDetails.email,
       receiver_name: `${order.customers.first_name} ${order.customers.last_name}`,
       receiver_phone: sanitizePhoneNumber(order.customers.phone),
-      receiver_destination_id: address.district_id,
+      receiver_destination_id: parseInt(address.district_id, 10),
       receiver_address: address.street,
-      shipping: order.shipping_provider,
+      shipping: order.shipping_provider.toLowerCase(),
       shipping_type: order.shipping_service,
       payment_method: "BANK TRANSFER",
       shipping_cost: order.shipping_amount,
