@@ -9,6 +9,14 @@ const WhatsAppIcon: React.FC = () => (
   </svg>
 );
 
+const EmailIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+    </svg>
+);
+
+
 const ContactView: React.FC = () => {
   const [formData, setFormData] = useState<ContactFormData>({
     name: '',
@@ -20,6 +28,7 @@ const ContactView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const whatsappNumber = "6281288472398"; // The number without '+' or spaces
+  const officialEmail = "info@cerabrasileira.com";
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -50,6 +59,18 @@ const ContactView: React.FC = () => {
         <p className="text-gray-600 mt-2">Have a question or feedback? We'd love to hear from you!</p>
       </div>
 
+      <div className="flex flex-col md:flex-row justify-center items-center gap-8 my-8 text-center border-y py-6">
+        <a href={`mailto:${officialEmail}`} className="group flex items-center text-gray-700 hover:text-pink-600 transition-colors">
+            <EmailIcon />
+            <span className="font-semibold">{officialEmail}</span>
+        </a>
+         <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noopener noreferrer" className="group flex items-center text-gray-700 hover:text-green-600 transition-colors">
+            <WhatsAppIcon />
+            <span className="font-semibold">Chat on WhatsApp</span>
+        </a>
+      </div>
+
+
       {successMessage && (
         <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-md mb-6" role="alert">
           <p className="font-bold">Success</p>
@@ -64,6 +85,8 @@ const ContactView: React.FC = () => {
         </div>
       )}
 
+      <p className="text-center text-gray-500 mb-6">Or send us a message using the form below:</p>
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -75,7 +98,7 @@ const ContactView: React.FC = () => {
               value={formData.name}
               onChange={handleInputChange}
               required
-              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
+              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
             />
           </div>
           <div>
@@ -87,7 +110,7 @@ const ContactView: React.FC = () => {
               value={formData.email}
               onChange={handleInputChange}
               required
-              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
+              className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
             />
           </div>
         </div>
@@ -100,7 +123,7 @@ const ContactView: React.FC = () => {
             value={formData.subject}
             onChange={handleInputChange}
             required
-            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
+            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
           />
         </div>
         <div>
@@ -112,23 +135,14 @@ const ContactView: React.FC = () => {
             value={formData.message}
             onChange={handleInputChange}
             required
-            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-[var(--brand-red)] focus:border-[var(--brand-red)]"
+            className="mt-1 p-3 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500"
           />
         </div>
-        <div className="flex justify-end items-center gap-4">
-          <a
-            href={`https://wa.me/${whatsappNumber}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center py-3 px-6 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-          >
-            <WhatsAppIcon />
-            Chat on WhatsApp
-          </a>
+        <div className="flex justify-end items-center">
           <button
             type="submit"
             disabled={isLoading}
-            className="inline-flex justify-center py-3 px-8 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-[var(--brand-red)] hover:bg-[#b0212c] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--brand-red)] disabled:bg-[#f6b3ba]"
+            className="inline-flex justify-center py-3 px-8 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-pink-500 hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:bg-pink-300"
           >
             {isLoading ? <Spinner /> : 'Send Message'}
           </button>

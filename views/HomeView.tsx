@@ -39,20 +39,16 @@ const HomeView: React.FC<HomeViewProps> = ({ onProductClick }) => {
 
   return (
     <div>
-      <section id="hero" className="rounded-xl mb-12">
-        <h2>Premium Brazilian Waxing Essentials</h2>
-        <p>Natural, effective, and crafted for smooth confidence — shop our curated collection.</p>
-        <a href="#products">Shop Now</a>
-      </section>
+      <div className="text-center mb-12">
+        <h1 className="text-4xl md:text-5xl font-bold text-gray-800">Our Collection</h1>
+        <p className="text-lg text-gray-600 mt-4">Discover premium products for a flawless waxing experience.</p>
+      </div>
       {products.length > 0 ? (
-        <section id="products">
-          <h2>Our Collection</h2>
-          <div className="products-grid">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {products.map(product => (
             <ProductCard key={product.id} product={product} onClick={onProductClick} />
           ))}
-          </div>
-        </section>
+        </div>
       ) : (
          <div className="text-center bg-white p-12 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold text-gray-700 mb-4">The Boutique is Currently Empty</h2>

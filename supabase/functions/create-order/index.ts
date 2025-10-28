@@ -5,7 +5,7 @@ declare const Deno: {
 };
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { CartItem, CustomerDetails, ShippingOption } from '../../../types.ts'
 
 interface RequestBody {
@@ -47,53 +47,109 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
     
-    const args = {
-      customer_first_name: customerDetails.firstName,
-      customer_last_name: customerDetails.lastName,
-      customer_email: customerDetails.email,
-      customer_phone: customerDetails.phone,
-      address_street: customerDetails.address,
-      address_province_id: customerDetails.province.id,
-      address_province_name: customerDetails.province.name,
-      address_city_id: customerDetails.city.id,
-      address_city_name: customerDetails.city.name,
-      address_district_id: customerDetails.district.id,
-      address_district_name: customerDetails.district.name,
-      address_subdistrict_id: customerDetails.subdistrict?.id,
-      address_subdistrict_name: customerDetails.subdistrict?.name,
-      address_postal_code: customerDetails.postalCode,
-      order_subtotal: subtotal,
-      order_shipping_cost: shippingOption.cost,
-      order_total: total,
-      order_shipping_provider: shippingOption.name,
-      order_shipping_service: shippingOption.service,
-      // Map cart items to the structure expected by the JSONB parameter
-      order_items_json: cartItems.map(item => ({
-        product_id: item.product.id,
-        variant_id: item.variant.id,
-        quantity: item.quantity,
-        price: item.variant.price // Use variant price
-      })),
-      payment_midtrans_id: midtransResult.order_id,
-      payment_status_code: midtransResult.status_code,
-      payment_status_message: midtransResult.status_message,
-      payment_type: midtransResult.payment_type,
-      payment_raw_response: midtransResult,
-    };
+    // --- Transactional Logic using direct Supabase client calls ---
 
-    console.log("Calling create_full_order_with_variants with args:", JSON.stringify(args, null, 2));
+    // 1. Find or create the customer record.
+    console.log("Upserting customer...");
+    const { data: customer, error: customerError } = await supabaseAdmin
+      .from('customers')
+      .upsert({
+        email: customerDetails.email.toLowerCase(),
+        first_name: customerDetails.firstName,
+        last_name: customerDetails.lastName,
+        phone: customerDetails.phone,
+      }, { onConflict: 'email' })
+      .select()
+      .single();
 
-    // Call the updated PostgreSQL function
-    const { data: newOrderId, error } = await supabaseAdmin.rpc('create_full_order_with_variants', args);
+    if (customerError) throw new Error(`Failed to create/update customer: ${customerError.message}`);
+    console.log("Customer upserted successfully:", customer.id);
 
-    if (error) {
-      console.error('Error calling create_full_order_with_variants function:', error);
-      throw error;
-    }
-    
-    console.log("Successfully created order with ID:", newOrderId);
 
-    return new Response(JSON.stringify({ success: true, orderId: midtransResult.order_id, newOrderId }), {
+    // 2. Create the address record.
+    console.log("Inserting address...");
+    const { data: address, error: addressError } = await supabaseAdmin
+      .from('addresses')
+      .insert({
+        customer_id: customer.id,
+        street: customerDetails.address,
+        province_id: customerDetails.province.id,
+        province_name: customerDetails.province.name,
+        city_id: customerDetails.city.id,
+        city_name: customerDetails.city.name,
+        district_id: customerDetails.district.id,
+        district_name: customerDetails.district.name,
+        subdistrict_id: customerDetails.subdistrict?.id,
+        subdistrict_name: customerDetails.subdistrict?.name,
+        postal_code: customerDetails.postalCode,
+      })
+      .select()
+      .single();
+
+    if (addressError) throw new Error(`Failed to save address: ${addressError.message}`);
+    console.log("Address inserted successfully:", address.id);
+
+
+    // 3. Create the order record.
+    console.log("Inserting order...");
+    const orderStatus = midtransResult.transaction_status === 'settlement' || midtransResult.transaction_status === 'capture' ? 'paid' : 'pending_payment';
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .insert({
+        order_number: midtransResult.order_id,
+        customer_id: customer.id,
+        shipping_address_id: address.id,
+        subtotal_amount: subtotal,
+        shipping_amount: shippingOption.cost,
+        total_amount: total,
+        status: orderStatus,
+        shipping_provider: shippingOption.name,
+        shipping_service: shippingOption.service,
+      })
+      .select()
+      .single();
+
+    if (orderError) throw new Error(`Failed to create order: ${orderError.message}`);
+    console.log("Order inserted successfully:", order.id);
+
+    // 4. Create the payment record.
+    console.log("Inserting payment record...");
+    const { error: paymentError } = await supabaseAdmin
+      .from('payments')
+      .insert({
+        order_id: order.id,
+        midtrans_id: midtransResult.order_id,
+        status_code: midtransResult.status_code,
+        status_message: midtransResult.status_message,
+        payment_type: midtransResult.payment_type,
+        raw_response: midtransResult,
+      });
+
+    if (paymentError) throw new Error(`Failed to save payment details: ${paymentError.message}`);
+    console.log("Payment record inserted successfully.");
+
+
+    // 5. Create the order item records.
+    console.log("Inserting order items...");
+    const itemsToInsert = cartItems.map(item => ({
+      order_id: order.id,
+      product_id: item.product.id,
+      product_variant_id: item.variant.id,
+      quantity: item.quantity,
+      price: item.variant.price,
+    }));
+
+    const { error: itemsError } = await supabaseAdmin
+      .from('order_items')
+      .insert(itemsToInsert);
+
+    if (itemsError) throw new Error(`Failed to save order items: ${itemsError.message}`);
+    console.log("Order items inserted successfully.");
+
+
+    console.log("Successfully created full order with ID:", order.id);
+
+    return new Response(JSON.stringify({ success: true, orderId: midtransResult.order_id, newOrderId: order.id }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

@@ -68,16 +68,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
     
     const getButtonState = () => {
         if (hasVariants) {
-        return { text: 'View Options', disabled: false, className: 'bg-[var(--brand-red)] hover:bg-[#b0212c]' };
+            return { text: 'View Options', disabled: false, className: 'bg-pink-500 hover:bg-pink-600' };
         }
         switch (addState) {
             case 'adding':
-                return { text: 'Adding...', disabled: true, className: 'bg-[#f08a94]' };
+                return { text: 'Adding...', disabled: true, className: 'bg-pink-400' };
             case 'added':
                 return { text: 'Added ✓', disabled: true, className: 'bg-green-500' };
             case 'idle':
             default:
-                return { text: 'Add to Cart', disabled: !defaultVariant, className: 'bg-[var(--brand-red)] hover:bg-[#b0212c] disabled:bg-[#f6b3ba]' };
+                return { text: 'Add to Cart', disabled: !defaultVariant, className: 'bg-pink-500 hover:bg-pink-600 disabled:bg-pink-300' };
         }
     };
 
@@ -93,7 +93,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300"></div>
         <button 
           onClick={handleWishlistToggle} 
-          className={`absolute top-3 right-3 bg-white/80 backdrop-blur-sm rounded-full p-2 transition-colors z-10 ${isWishlisted ? 'text-[var(--brand-red)]' : 'text-gray-500 hover:text-[var(--brand-red)]'}`}
+          className={`absolute top-3 right-3 bg-white/80 backdrop-blur-sm rounded-full p-2 transition-colors z-10 ${isWishlisted ? 'text-pink-500' : 'text-gray-500 hover:text-pink-500'}`}
           aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
         >
           <HeartIcon filled={isWishlisted} />
@@ -103,7 +103,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
         <h3 className="text-lg font-semibold text-gray-800 truncate">{product.name}</h3>
         <p className="text-gray-500 mt-1">{product.category}</p>
         <div className="flex justify-between items-center mt-4">
-          <span className="text-xl font-bold" style={{ color: 'var(--brand-red)' }}>{getPriceDisplay()}</span>
+          <span className="text-xl font-bold text-pink-500">{getPriceDisplay()}</span>
           <button 
             onClick={handleActionClick}
             disabled={buttonState.disabled}

@@ -18,6 +18,7 @@ import AuthView from './views/AuthView';
 import TutorialView from './views/TutorialView';
 import Spinner from './components/Spinner';
 import AboutUsView from './views/AboutUsView';
+import ReviewsView from './views/ReviewsView';
 
 
 export enum View {
@@ -34,6 +35,7 @@ export enum View {
   AUTH,
   TUTORIAL,
   ABOUT_US,
+  REVIEWS,
 }
 
 export type AppView =
@@ -49,6 +51,7 @@ export type AppView =
   | { name: View.CONTACT }
   | { name: View.AUTH }
   | { name: View.ABOUT_US }
+  | { name: View.REVIEWS }
   | { name: View.TUTORIAL };
 
 const AppContent: React.FC = () => {
@@ -133,13 +136,15 @@ const AppContent: React.FC = () => {
         return session ? <TutorialView /> : <AuthView onLoginSuccess={() => {}} />;
       case View.ABOUT_US:
         return <AboutUsView />;
+      case View.REVIEWS:
+        return <ReviewsView />;
       default:
         return <HomeView onProductClick={(product) => navigate({ name: View.PRODUCT_DETAIL, productId: product.id })} />;
     }
   };
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--natural-beige)', color: 'var(--dark-text)' }}>
+    <div className="bg-gray-50 min-h-screen text-gray-800">
       <Header onNavigate={navigate} />
       <main className="container mx-auto px-4 py-8 pt-24">
         {renderView()}

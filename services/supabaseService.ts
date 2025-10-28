@@ -127,30 +127,9 @@ export const supabaseService = {
     // 1. Separate media URLs from the main product data to prevent inserting into the wrong table.
     const { variants, imageUrls, videoUrl, ...productData } = payload as any;
 
-    // Map camelCase to snake_case for DB, and ensure decimal price
-    const normalizedProduct = {
-      name: productData.name,
-      category: productData.category,
-      description: productData.description,
-      long_description: productData.longDescription ?? null,
-      currency: productData.currency ?? 'IDR',
-      // price: ensure number; if empty or NaN, set 0 to satisfy NOT NULL
-      price: Number(productData.price),
-      base_price: Number(productData.base_price ?? productData.basePrice ?? 0),
-      slug: productData.slug || null,
-      active: productData.active ?? true,
-    } as any;
-
-    if (!Number.isFinite(normalizedProduct.price)) {
-      normalizedProduct.price = 0;
-    }
-    if (!Number.isFinite(normalizedProduct.base_price)) {
-      normalizedProduct.base_price = 0;
-    }
-
     const { data: newProduct, error: productError } = await supabase
       .from('products')
-      .insert([normalizedProduct])
+      .insert([productData])
       .select()
       .single();
 
@@ -194,11 +173,7 @@ export const supabaseService = {
     
     const { data: updatedProduct, error: productError } = await supabase
       .from('products')
-      .update({
-        ...productData,
-        long_description: (productData as any).longDescription ?? (productData as any).long_description,
-        base_price: Number((productData as any).base_price ?? (productData as any).basePrice ?? 0),
-      })
+      .update(productData)
       .eq('id', id)
       .select()
       .single();
@@ -357,7 +332,27 @@ export const supabaseService = {
       console.error('Error fetching orders:', error);
       throw new Error(`Failed to fetch orders. Supabase error: ${error.message}`);
     }
-    return data as FullOrder[] || [];
+    
+    // FIX: The auto-inferred type from Supabase can be incorrect for relationships,
+    // returning arrays for one-to-one relations (e.g., `customers`). This transformer
+    // manually corrects the data structure to align with the `FullOrder` type,
+    // preventing both TypeScript errors and runtime issues. It also restructures
+    // `order_items` to match the nested format expected by other components.
+    const transformedData = (data || []).map((order: any) => ({
+      ...order,
+      customers: Array.isArray(order.customers) ? order.customers[0] || null : order.customers,
+      order_items: order.order_items.map((item: any) => {
+        const product = Array.isArray(item.products) ? item.products[0] : item.products;
+        const variant = Array.isArray(item.product_variants) ? item.product_variants[0] : item.product_variants;
+        return {
+          quantity: item.quantity,
+          price: item.price,
+          products: product ? { ...product, product_variants: variant || null } : null,
+        };
+      }),
+    }));
+    
+    return transformedData as unknown as FullOrder[];
   },
   
   // Update the status of an order

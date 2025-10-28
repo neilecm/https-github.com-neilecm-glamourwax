@@ -286,8 +286,20 @@ const TutorialView: React.FC = () => {
 
       {/* Section: FAQ */}
       <section>
-        <h2 className="text-3xl font-bold text-center mb-8">Troubleshooting & FAQ</h2>
+        <h2 className="text-3xl font-bold text-center mb-8">Common Questions & Troubleshooting</h2>
         <div className="max-w-3xl mx-auto">
+          <AccordionItem title="Is Cera Brasileira truly 100% natural?">
+            <p>Yes, absolutely! Our wax is crafted from a traditional Brazilian recipe using only natural honey and propolis. It contains no harsh chemicals, preservatives, artificial colors, or any other additives. Just pure, gentle ingredients for your skin.</p>
+          </AccordionItem>
+          <AccordionItem title="Are you the original Brazilian Hard Wax?">
+             <p>We are! Cera Brasileira is the one and only original, based on a family recipe passed down through generations in Brazil since 1992. When you use our wax, you're experiencing an authentic beauty tradition trusted for decades.</p>
+          </AccordionItem>
+          <AccordionItem title="Where on my body can I use this wax?">
+            <p>Cera Brasileira is gentle enough to be used on the entire body. This includes your face (brows, upper lip), legs, arms, underarms, and even the most sensitive intimate areas for a full Brazilian wax.</p>
+          </AccordionItem>
+           <AccordionItem title="Is the wax safe to use during pregnancy?">
+            <p>Yes, our all-natural formula is safe for use by pregnant and breastfeeding mothers. However, skin can be more sensitive during pregnancy, so we always recommend doing a small patch test on your wrist before proceeding with a full session to ensure you're comfortable.</p>
+          </AccordionItem>
           <AccordionItem title="What if the wax breaks when I pull it?">
             <p>This usually happens for one of two reasons: either the wax was applied too thinly, or it was left on the skin for too long and became brittle. Try applying a slightly thicker layer and removing it a little sooner. If a piece breaks off, you can apply a fresh, warm strip over it, let it set, and remove them together.</p>
           </AccordionItem>
