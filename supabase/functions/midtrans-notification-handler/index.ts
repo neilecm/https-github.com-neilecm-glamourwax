@@ -2,142 +2,104 @@
 
 declare const Deno: {
   env: { get(key: string): string | undefined; };
-  crypto: any; // Use Deno's global crypto
 };
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { HmacSha512 } from 'https://deno.land/std@0.119.0/hash/sha512.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+// Helper to map Midtrans status to our internal status
+const mapMidtransStatus = (transactionStatus: string, fraudStatus?: string): 'paid' | 'failed' | null => {
+  if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
+    if (fraudStatus === 'challenge' || fraudStatus === 'accept') {
+      return 'paid';
+    }
+  } else if (transactionStatus === 'cancel' || transactionStatus === 'deny' || transactionStatus === 'expire') {
+    return 'failed';
+  }
+  // 'pending' and other statuses are ignored, as we only care about final states.
+  return null;
 };
 
-// Helper function to create a SHA-512 hash using Deno's Web Crypto API
-async function createHash(data: string) {
-  const encoder = new TextEncoder();
-  const buffer = await Deno.crypto.subtle.digest('SHA-512', encoder.encode(data));
-  const hashArray = Array.from(new Uint8Array(buffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-
   try {
-    const notification = await req.json();
-    console.log("Received Midtrans notification:", JSON.stringify(notification, null, 2));
+    const notificationJson = await req.json();
+    console.log("Received Midtrans notification:", JSON.stringify(notificationJson, null, 2));
 
-    const { order_id, status_code, gross_amount, signature_key, transaction_status } = notification;
+    const {
+      order_id: orderNumber,
+      status_code: statusCode,
+      gross_amount: grossAmount,
+      signature_key: signatureKey,
+      transaction_status: transactionStatus,
+      fraud_status: fraudStatus,
+    } = notificationJson;
 
-    if (!order_id || !status_code || !gross_amount || !signature_key || !transaction_status) {
-        throw new Error("Invalid notification payload from Midtrans.");
+    // --- 1. Get Secrets & Supabase Admin Client ---
+    const midtransServerKey = Deno.env.get('MIDTRANS_SERVER_KEY');
+    if (!midtransServerKey) {
+      console.error("FATAL: MIDTRANS_SERVER_KEY is not set.");
+      return new Response('Server configuration error', { status: 500 });
+    }
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    // --- 2. Verify Signature Key ---
+    const expectedSignature = new HmacSha512(midtransServerKey)
+      .update(`${orderNumber}${statusCode}${grossAmount}`)
+      .toString();
+
+    if (signatureKey !== expectedSignature) {
+      console.error(`Signature mismatch for order ${orderNumber}. Expected: ${expectedSignature}, Got: ${signatureKey}`);
+      return new Response('Invalid signature', { status: 403 });
+    }
+    console.log(`Signature verified for order ${orderNumber}.`);
+
+    // --- 3. Update Order Status in Database ---
+    const newStatus = mapMidtransStatus(transactionStatus, fraudStatus);
+    if (!newStatus) {
+      console.log(`Ignoring status '${transactionStatus}' for order ${orderNumber}.`);
+      return new Response('Notification processed, status ignored.', { status: 200 });
     }
 
-    const serverKey = Deno.env.get('MIDTRANS_SERVER_KEY');
-    if (!serverKey) {
-      throw new Error("MIDTRANS_SERVER_KEY is not configured in secrets.");
+    console.log(`Updating order ${orderNumber} to status '${newStatus}'.`);
+    const { data: updatedOrder, error: updateError } = await supabaseAdmin
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('order_number', orderNumber)
+      .select('id, status')
+      .single();
+
+    if (updateError) {
+      console.error(`DB Error (Update Order Status): ${updateError.message}`);
+      // Return 500 so Midtrans might retry
+      return new Response('Database update failed', { status: 500 });
+    }
+    if (!updatedOrder) {
+        console.warn(`Order with order_number ${orderNumber} not found in database.`);
+        return new Response('Order not found', { status: 404 });
     }
 
-    // --- 1. Verify Signature Key for Security ---
-    const expectedSignature = await createHash(`${order_id}${status_code}${gross_amount}${serverKey}`);
-    if (signature_key !== expectedSignature) {
-      console.error(`Signature mismatch. Expected: ${expectedSignature}, Got: ${signature_key}`);
-      throw new Error("Invalid signature. Request is not from Midtrans.");
-    }
-    console.log("Signature verified successfully.");
-
-    // --- 2. Determine New Order Status ---
-    let newStatus: 'paid' | 'failed' | 'pending_payment' = 'pending_payment';
-    if (transaction_status === 'capture' || transaction_status === 'settlement') {
-      newStatus = 'paid';
-    } else if (transaction_status === 'expire' || transaction_status === 'cancel' || transaction_status === 'deny') {
-      newStatus = 'failed';
-    } else {
-        console.log(`Unhandled transaction status: ${transaction_status}. Order status will not be changed.`);
-        return new Response('ok', { status: 200 }); // Acknowledge receipt
-    }
-    
-    // --- 3. Update the Database ---
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
-    const { data: order, error: findError } = await supabaseAdmin
-        .from('orders')
-        .select('id, status')
-        .eq('order_number', order_id)
-        .single();
-    
-    if (findError || !order) {
-        // Important: Still return 200 to Midtrans so it doesn't retry, but log the critical error.
-        console.error(`CRITICAL: Received valid notification for non-existent order_number: ${order_id}`);
-        return new Response('Order not found, but acknowledged.', { status: 200 });
-    }
-
-    // Idempotency check: Don't update if status is already correct
-    if (order.status === newStatus) {
-        console.log(`Order ${order_id} is already in status '${newStatus}'. No update needed.`);
-    } else {
-      const { error: updateError } = await supabaseAdmin
-        .from('orders')
-        .update({ status: newStatus })
-        .eq('id', order.id);
-      if (updateError) throw new Error(`Failed to update order status: ${updateError.message}`);
-    }
-    
-    // --- 4. Log Payment and Trigger Post-Payment Actions ---
-    
-    const { error: paymentError } = await supabaseAdmin.from('payments').insert({
-        order_id: order.id, midtrans_id: notification.transaction_id || order_id, status_code,
-        status_message: notification.status_message, payment_type: notification.payment_type,
-        raw_response: notification,
-    });
-    if (paymentError) console.error(`Failed to log payment for order ${order_id}: ${paymentError.message}`);
-
-    if (newStatus === 'paid') {
-      console.log(`Payment successful for order ${order_id}. Submitting to Komerce and sending email...`);
-
-      // --- 1. Submit the order to Komerce using a robust fetch call ---
-      const functionUrl = `${supabaseUrl}/functions/v1/submit-order-to-komerce`;
-      const invokeResponse = await fetch(functionUrl, {
-          method: 'POST',
-          headers: {
-              'Authorization': `Bearer ${serviceRoleKey}`,
-              'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ orderId: order.id }),
+    // --- 4. Trigger Post-Payment Actions (e.g., Email) ---
+    if (updatedOrder.status === 'paid') {
+      console.log(`Triggering confirmation email for order ID ${updatedOrder.id}`);
+      // Invoke the email function without waiting for it to complete.
+      // The notification handler's primary job is to quickly respond to Midtrans.
+      supabaseAdmin.functions.invoke('send-order-confirmation-email', {
+        body: { order_id: updatedOrder.id },
+      }).catch(err => {
+        // Log error but don't fail the response to Midtrans
+        console.error(`Error invoking send-order-confirmation-email for order ${updatedOrder.id}:`, err.message);
       });
-      if (!invokeResponse.ok) {
-          const errorText = await invokeResponse.text();
-          console.error(`CRITICAL: Failed to invoke submit-order-to-komerce. Status: ${invokeResponse.status}. Response: ${errorText}`);
-      } else {
-          console.log(`Successfully invoked submit-order-to-komerce for order ${order.id}.`);
-      }
-
-      // --- 2. Send confirmation email to the customer ---
-      const { error: emailError } = await supabaseAdmin.functions.invoke('send-order-confirmation-email', {
-          body: { order_id: order.id },
-      });
-      if (emailError) {
-          console.error(`Failed to invoke confirmation email for order ${order.id}:`, emailError.message);
-      } else {
-          console.log(`Successfully invoked email function for order ${order.id}.`);
-      }
     }
 
-    console.log(`Successfully processed notification for order ${order_id}.`);
-    
-    return new Response('Notification processed successfully.', { headers: corsHeaders, status: 200 });
+    console.log(`Successfully processed notification for order ${orderNumber}.`);
+    return new Response('Notification received successfully.', { status: 200 });
 
   } catch (err) {
     console.error("Error in Midtrans notification handler:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    });
+    return new Response('Internal server error', { status: 500 });
   }
 });

@@ -1,17 +1,34 @@
-// services/supabaseService.ts
-
-import { supabase } from './supabase';
+import { supabase, supabaseUrl } from './supabase';
 import type { Product, FullOrder, ContactFormData } from '../types';
 
-// A generic helper to standardize error handling for Supabase calls
-const handleSupabaseError = (error: any, context: string) => {
-  if (error) {
-    console.error(`Error in ${context}:`, error.message);
-    // Extract a more specific error from function invocation if possible
-    const functionError = (error as any).context?.error_cause?.error;
-    const errorMessage = functionError || `Database operation failed: ${context}. Please check application logs for details.`;
-    throw new Error(errorMessage);
+// A new, robust helper to invoke functions using a direct fetch call.
+// This avoids the silent failures sometimes seen with supabase.functions.invoke().
+const invokeFunction = async <T = any>(
+  functionName: string,
+  options: { method?: 'GET' | 'POST'; body?: object } = {}
+): Promise<T> => {
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) {
+    throw new Error('User not authenticated.');
   }
+  
+  const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+  const response = await fetch(functionUrl, {
+    method: options.method || 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(errorData.error || `Edge function '${functionName}' returned a non-2xx status code.`);
+  }
+
+  return response.json();
 };
 
 export const supabaseService = {
@@ -30,7 +47,8 @@ export const supabaseService = {
       `)
       .order('created_at', { ascending: false });
 
-    handleSupabaseError(error, 'fetching products');
+    if (error) throw new Error(`Database operation failed: fetching products. ${error.message}`);
+    
     const products = (data || []).map(p => ({ ...p, variants: p.variants || [] }));
     
     return products.map(p => ({
@@ -65,7 +83,8 @@ export const supabaseService = {
       .eq('id', id)
       .single();
 
-    handleSupabaseError(error, `fetching product with id ${id}`);
+    if (error) throw new Error(`Database operation failed: fetching product with id ${id}. ${error.message}`);
+
     if (data) {
         const p = { ...data, variants: data.variants || [] };
         return {
@@ -90,30 +109,27 @@ export const supabaseService = {
    * Invokes a secure Edge Function to add a new product and its variants.
    */
   async addProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
-    const { error } = await supabase.functions.invoke('add-product', {
-      body: productData, // Send the product data directly as the body
+    await invokeFunction('add-product', {
+      body: productData,
     });
-    handleSupabaseError(error, 'adding new product');
   },
 
   /**
    * Invokes a secure Edge Function to update an existing product and its variants.
    */
   async updateProduct(id: string, productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
-    const { error } = await supabase.functions.invoke('update-product', {
+    await invokeFunction('update-product', {
       body: { id, productData },
     });
-    handleSupabaseError(error, `updating product with id ${id}`);
   },
 
   /**
    * Invokes a secure Edge Function to delete a product.
    */
   async deleteProduct(id: string): Promise<void> {
-    const { error } = await supabase.functions.invoke('delete-product', {
+    await invokeFunction('delete-product', {
       body: { id },
     });
-    handleSupabaseError(error, `deleting product with id ${id}`);
   },
 
   /**
@@ -128,7 +144,7 @@ export const supabaseService = {
       .from('product_media')
       .upload(filePath, file);
 
-    handleSupabaseError(uploadError, 'uploading product media');
+    if (uploadError) throw new Error(`Database operation failed: uploading product media. ${uploadError.message}`);
 
     const { data } = supabase.storage.from('product_media').getPublicUrl(filePath);
     return data.publicUrl;
@@ -136,44 +152,26 @@ export const supabaseService = {
 
   /**
    * Fetches all orders with detailed information by invoking a secure Edge Function.
-   * This is the secure way to get order data for the admin panel.
    */
   async getOrders(): Promise<FullOrder[]> {
-    const { data, error } = await supabase.functions.invoke('get-orders', {
-      method: 'GET',
-    });
-
-    handleSupabaseError(error, 'fetching orders');
-
-    // The function now returns the data in the correct shape, so no client-side transformation is needed.
-    return data || [];
+    return await invokeFunction<FullOrder[]>('get-orders', { method: 'GET' });
   },
 
   /**
    * Manually checks an order's status with Midtrans via a secure Edge Function.
    */
   async checkOrderStatus(orderNumber: string): Promise<{ status: string }> {
-    const { data, error } = await supabase.functions.invoke('check-midtrans-status', {
+    return await invokeFunction('check-midtrans-status', {
       body: { orderNumber },
     });
-    handleSupabaseError(error, `checking status for order ${orderNumber}`);
-    return data;
   },
-
 
   /**
    * Invokes the 'send-contact-email' edge function.
    */
   async sendContactMessage(formData: ContactFormData): Promise<void> {
-    const { error } = await supabase.functions.invoke('send-contact-email', {
+    await invokeFunction('send-contact-email', {
       body: formData,
     });
-    
-    if (error) {
-        console.error('Error from send-contact-email function:', error);
-        const errorMessage = (error as any).context?.error_cause?.error 
-            || `Failed to send message. Supabase function error: ${error.message}`;
-        throw new Error(errorMessage);
-    }
   },
 };
