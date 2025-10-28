@@ -48,6 +48,7 @@ serve(async (req) => {
       .select('id')
       .single();
     if (customerError) throw new Error(`DB Error (Customer): ${customerError.message}`);
+    if (!customerData) throw new Error("DB Error: Failed to create or find customer.");
 
     // Step B: Insert Address
     const { data: addressData, error: addressError } = await supabaseAdmin
@@ -55,19 +56,22 @@ serve(async (req) => {
       .insert({
         customer_id: customerData.id,
         street: customerDetails.address,
-        province_id: customerDetails.province.id,
+        // FIX: Ensure location IDs are parsed as integers, as the DB likely expects them to be numbers.
+        // The API returns them as strings, causing a type mismatch error.
+        province_id: parseInt(customerDetails.province.id, 10),
         province_name: customerDetails.province.name,
-        city_id: customerDetails.city.id,
+        city_id: parseInt(customerDetails.city.id, 10),
         city_name: customerDetails.city.name,
-        district_id: customerDetails.district.id,
+        district_id: parseInt(customerDetails.district.id, 10),
         district_name: customerDetails.district.name,
-        subdistrict_id: customerDetails.subdistrict?.id,
-        subdistrict_name: customerDetails.subdistrict?.name,
+        subdistrict_id: customerDetails.subdistrict ? parseInt(customerDetails.subdistrict.id, 10) : null,
+        subdistrict_name: customerDetails.subdistrict?.name || null,
         postal_code: customerDetails.postalCode,
       })
       .select('id')
       .single();
     if (addressError) throw new Error(`DB Error (Address): ${addressError.message}`);
+    if (!addressData) throw new Error("DB Error: Failed to save shipping address.");
 
     // Step C: Insert Order
     const { data: orderData, error: orderError } = await supabaseAdmin
@@ -86,6 +90,7 @@ serve(async (req) => {
       .select('id')
       .single();
     if (orderError) throw new Error(`DB Error (Order): ${orderError.message}`);
+    if (!orderData) throw new Error("DB Error: Failed to create order record.");
 
     // Step D: Insert Order Items
     const orderItemsToInsert = cartItems.map((item: any) => ({
