@@ -30,13 +30,15 @@ serve(async (req) => {
     if (!KOMERCE_API_KEY) { throw new Error("KOMERCE_API_KEY is not set in secrets."); }
 
     // --- 1. Fetch all required order data from local DB ---
+    // FIX: Use explicit join syntax (!shipping_address_id) to ensure the address is reliably fetched.
+    // The previous implicit join was failing, causing `orderData.addresses` to be null and crashing the function.
     const { data: orderData, error: fetchError } = await supabaseAdmin
       .from('orders')
       .select(`
         created_at, total_amount, shipping_amount,
         shipping_provider, shipping_service,
         customers ( first_name, last_name, email, phone ),
-        addresses ( street, district_id ),
+        addresses!shipping_address_id ( street, district_id ),
         order_items (
             quantity,
             price,

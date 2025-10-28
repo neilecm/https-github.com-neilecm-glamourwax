@@ -98,8 +98,10 @@ serve(async (req) => {
       console.log(`Payment confirmed for order ${order_id}. Triggering post-payment actions...`);
       
       // Submit order to shipping partner
+      // FIX: Manually stringify the body to prevent potential silent serialization issues
+      // when one function invokes another. This is a more robust way to make the call.
       const { error: komerceError } = await supabaseAdmin.functions.invoke('submit-order-to-komerce', {
-        body: { orderId: order.id },
+        body: JSON.stringify({ orderId: order.id }),
       });
       if (komerceError) {
         console.error(`CRITICAL: Failed to submit order ${order.id} to Komerce after manual status check. Manual action required. Error:`, komerceError.message);
