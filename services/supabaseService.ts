@@ -1,389 +1,269 @@
 // services/supabaseService.ts
 
 import { supabase } from './supabase';
-import type {
-  Product,
-  CustomerDetails,
-  CartItem,
-  ShippingOption,
-  FullOrder,
-  OrderStatus,
-  ProductVariant,
-  ContactFormData,
-} from '../types';
+import type { Product, FullOrder, ContactFormData, ProductVariant } from '../types';
 
-// Type for product data before it's inserted (no ID or createdAt)
-type NewProductPayload = Omit<Product, 'id' | 'createdAt' | 'variants'> & {
-  variants: Omit<ProductVariant, 'id' | 'productId'>[];
+// A generic helper to standardize error handling for Supabase calls
+const handleSupabaseError = (error: any, context: string) => {
+  if (error) {
+    console.error(`Error in ${context}:`, error.message);
+    // Provide a more user-friendly error message
+    throw new Error(`Database operation failed: ${context}. Please check application logs for details.`);
+  }
 };
-// Type for product data when updating (all fields are partial)
-type UpdateProductPayload = Partial<Omit<Product, 'id' | 'createdAt' | 'variants'>> & {
-  variants?: (Partial<ProductVariant> & { id?: string })[]; // Variants can be new or existing
-};
-
 
 export const supabaseService = {
-  // Fetch all products with their variants
+  /**
+   * Fetches all products with their variants from the database.
+   */
   async getProducts(): Promise<Product[]> {
-    // Step 1: Fetch all products without trying to join variants.
-    const { data: products, error: productsError } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (productsError) {
-      console.error('Error fetching products:', productsError);
-      throw new Error(
-        `Failed to fetch products. Supabase error: ${productsError.message}`
-      );
-    }
-    if (!products || products.length === 0) {
-        return [];
-    }
-
-    // Step 2: Fetch all variants for the retrieved products.
-    const productIds = products.map(p => p.id);
-    const { data: variants, error: variantsError } = await supabase
-      .from('product_variants')
-      .select('*')
-      .in('productId', productIds);
-
-    if (variantsError) {
-      console.error('Error fetching variants:', variantsError);
-      throw new Error(`Failed to fetch variants. Supabase error: ${variantsError.message}`);
-    }
-
-    // Step 3: Manually map variants to their parent products.
-    const variantsByProductId = (variants || []).reduce((acc, variant) => {
-        if (!acc[variant.productId]) {
-            acc[variant.productId] = [];
-        }
-        acc[variant.productId].push(variant as ProductVariant);
-        return acc;
-    }, {} as Record<string, ProductVariant[]>);
-
-    const productsWithVariants = products.map(product => {
-        const productVariants = variantsByProductId[product.id] || [];
-        return {
-            ...product,
-            variants: productVariants,
-            // Hoist the first variant's media to be the main product media.
-            imageUrls: productVariants[0]?.imageUrls || [],
-            videoUrl: productVariants[0]?.videoUrl || null,
-        };
-    });
-
-    return productsWithVariants;
-  },
-
-  // Fetch a single product by its ID with its variants
-  async getProductById(id: string): Promise<Product | null> {
-    // Step 1: Fetch the main product data.
-    const { data: product, error: productError } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (productError) {
-      // If no product is found, Supabase returns an error. We should return null.
-      if (productError.code === 'PGRST116') { 
-        return null;
-      }
-      console.error(`Error fetching product with id ${id}:`, productError);
-      throw new Error(
-        `Failed to fetch product. Supabase error: ${productError.message}`
-      );
-    }
-    
-    if (!product) {
-        return null;
-    }
-
-    // Step 2: Fetch the variants for that specific product.
-    const { data: variants, error: variantsError } = await supabase
-      .from('product_variants')
-      .select('*')
-      .eq('productId', id);
-    
-    if (variantsError) {
-        console.error(`Error fetching variants for product ${id}:`, variantsError);
-        throw new Error(`Failed to fetch variants. Supabase error: ${variantsError.message}`);
-    }
-
-    // Step 3: Combine them into a single Product object.
-    const fetchedVariants = (variants || []) as ProductVariant[];
-    return {
-        ...product,
-        variants: fetchedVariants,
-        // The main product media are considered to be the media of the first variant.
-        imageUrls: fetchedVariants[0]?.imageUrls || [],
-        videoUrl: fetchedVariants[0]?.videoUrl || null,
-    };
-  },
-
-  // Create a new product and its variants
-  async addProduct(payload: NewProductPayload): Promise<Product> {
-    // 1. Separate media URLs from the main product data to prevent inserting into the wrong table.
-    const { variants, imageUrls, videoUrl, ...productData } = payload as any;
-
-    const { data: newProduct, error: productError } = await supabase
-      .from('products')
-      .insert([productData])
-      .select()
-      .single();
-
-    if (productError) {
-      console.error('Error adding product:', productError);
-      throw new Error(`Failed to add product. Supabase error: ${productError.message}`);
-    }
-
-    // 2. Prepare and insert the variants, assigning the main media to the first variant.
-    if (variants && variants.length > 0) {
-      if (imageUrls) {
-        variants[0].imageUrls = imageUrls;
-      }
-      if (videoUrl) {
-        variants[0].videoUrl = videoUrl;
-      }
-      const variantsToInsert = variants.map(variant => ({
-        ...variant,
-        productId: newProduct.id,
-      }));
-
-      const { error: variantsError } = await supabase
-        .from('product_variants')
-        .insert(variantsToInsert);
-      
-      if (variantsError) {
-        console.error('Error adding product variants:', variantsError);
-        // Attempt to roll back product creation for consistency
-        await supabase.from('products').delete().eq('id', newProduct.id);
-        throw new Error(`Product creation failed while adding variants (rolled back). Supabase error: ${variantsError.message}`);
-      }
-    }
-    
-    return (await supabaseService.getProductById(newProduct.id)) as Product;
-  },
-
-  // Update an existing product and its variants
-  async updateProduct(id: string, payload: UpdateProductPayload): Promise<Product> {
-    // 1. Separate media URLs from the main product data to avoid updating a non-existent column.
-    const { variants, imageUrls, videoUrl, ...productData } = payload as any;
-    
-    const { data: updatedProduct, error: productError } = await supabase
-      .from('products')
-      .update(productData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (productError) {
-      console.error('Error updating product:', productError);
-      throw new Error(`Failed to update product. Supabase error: ${productError.message}`);
-    }
-    
-    // 2. Manage variants, assigning main media to the first variant if they exist.
-    if (variants) {
-        if (imageUrls && variants.length > 0) {
-            variants[0].imageUrls = imageUrls;
-        }
-        if (videoUrl && variants.length > 0) {
-            variants[0].videoUrl = videoUrl;
-        }
-
-
-        const variantsToUpdate = variants.filter(v => v.id);
-        const variantsToAdd = variants.filter(v => !v.id).map(v => ({ ...v, productId: id }));
-
-        const { data: existingVariants } = await supabase.from('product_variants').select('id').eq('productId', id);
-        const existingVariantIds = existingVariants?.map(v => v.id) || [];
-        const newVariantIds = variantsToUpdate.map(v => v.id).filter(Boolean) as string[];
-        const variantsToDelete = existingVariantIds.filter(vid => !newVariantIds.includes(vid));
-
-        const [updateResult, addResult, deleteResult] = await Promise.all([
-            variantsToUpdate.length > 0 ? supabase.from('product_variants').upsert(variantsToUpdate) : Promise.resolve({ error: null }),
-            variantsToAdd.length > 0 ? supabase.from('product_variants').insert(variantsToAdd) : Promise.resolve({ error: null }),
-            variantsToDelete.length > 0 ? supabase.from('product_variants').delete().in('id', variantsToDelete) : Promise.resolve({ error: null }),
-        ]);
-        
-        const anyError = updateResult.error || addResult.error || deleteResult.error;
-        if (anyError) {
-             console.error('Error managing variants:', anyError);
-             throw new Error(`Product updated, but failed to sync variants. Error: ${anyError.message}`);
-        }
-    }
-    
-    return (await supabaseService.getProductById(updatedProduct.id)) as Product;
-  },
-
-  // Delete a product and its variants
-  async deleteProduct(id: string): Promise<void> {
-    // Manually delete variants first since there is no guaranteed FK cascade.
-    const { error: variantError } = await supabase
-        .from('product_variants')
-        .delete()
-        .eq('productId', id);
-
-    if (variantError) {
-      console.error('Error deleting product variants:', variantError);
-      throw new Error(
-        `Failed to delete product variants. Supabase error: ${variantError.message}`
-      );
-    }
-    
-    const { error: productError } = await supabase.from('products').delete().eq('id', id);
-
-    if (productError) {
-      console.error('Error deleting product:', productError);
-      throw new Error(
-        `Failed to delete product. Supabase error: ${productError.message}`
-      );
-    }
-  },
-
-  // Upload a file to the 'product-images' storage bucket.
-  async uploadProductMedia(file: File): Promise<string> {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random()}.${fileExt}`;
-    const filePath = `public/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('product-images')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error('Error uploading file:', uploadError);
-      throw new Error(`Failed to upload file. Supabase error: ${uploadError.message}`);
-    }
-
-    const { data } = supabase.storage
-      .from('product-images')
-      .getPublicUrl(filePath);
-
-    if (!data.publicUrl) {
-      throw new Error("Could not get public URL for the uploaded file.");
-    }
-
-    return data.publicUrl;
-  },
-
-  // Create an order by invoking the Supabase Edge Function
-  async createOrder(
-    customerDetails: CustomerDetails,
-    cartItems: CartItem[],
-    shippingOption: ShippingOption,
-    subtotal: number,
-    total: number,
-    midtransResult: any
-  ): Promise<any> {
-    const payload = {
-      customerDetails,
-      cartItems,
-      shippingOption,
-      subtotal,
-      total,
-      midtransResult,
-    };
-
-    console.log("Invoking 'create-order' function with payload:", payload);
-    const { data, error } = await supabase.functions.invoke('create-order', {
-      body: payload,
-    });
-
-    if (error) {
-      console.error('Error creating order via Supabase function:', error);
-      throw new Error(
-        `Failed to save order. Supabase function error: ${error.message}`
-      );
-    }
-
-    console.log("Successfully invoked 'create-order' function.", data);
-    return data;
-  },
-  
-  // Fetch all orders with related data for the Admin Dashboard
-  async getOrders(): Promise<FullOrder[]> {
     const { data, error } = await supabase
-      .from('orders')
+      .from('products')
       .select(`
-        id,
-        order_number,
-        status,
-        total_amount,
-        created_at,
-        shipping_provider,
-        shipping_service,
-        awb_number,
-        customers (*),
-        order_items (
-          quantity,
-          price,
-          products (id, name),
-          product_variants (id, name)
+        *,
+        variants:product_variants (
+          *
         )
       `)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching orders:', error);
-      throw new Error(`Failed to fetch orders. Supabase error: ${error.message}`);
-    }
+    handleSupabaseError(error, 'fetching products');
+    // Ensure variants is always an array
+    const products = (data || []).map(p => ({ ...p, variants: p.variants || [] }));
     
-    // FIX: The auto-inferred type from Supabase can be incorrect for relationships,
-    // returning arrays for one-to-one relations (e.g., `customers`). This transformer
-    // manually corrects the data structure to align with the `FullOrder` type,
-    // preventing both TypeScript errors and runtime issues. It also restructures
-    // `order_items` to match the nested format expected by other components.
-    const transformedData = (data || []).map((order: any) => ({
-      ...order,
-      customers: Array.isArray(order.customers) ? order.customers[0] || null : order.customers,
-      order_items: order.order_items.map((item: any) => {
-        const product = Array.isArray(item.products) ? item.products[0] : item.products;
-        const variant = Array.isArray(item.product_variants) ? item.product_variants[0] : item.product_variants;
-        return {
-          quantity: item.quantity,
-          price: item.price,
-          products: product ? { ...product, product_variants: variant || null } : null,
-        };
-      }),
+    // Map snake_case from DB to camelCase for the app
+    return products.map(p => ({
+      ...p,
+      longDescription: p.long_description,
+      variantOptions: p.variant_options,
+      imageUrls: p.image_urls,
+      videoUrl: p.video_url,
+      createdAt: p.created_at,
+      variants: p.variants.map((v: any) => ({
+        ...v,
+        productId: v.product_id,
+        imageUrls: v.image_urls,
+        videoUrl: v.video_url,
+      }))
     }));
-    
-    return transformedData as unknown as FullOrder[];
   },
-  
-  // Update the status of an order
-  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<FullOrder> {
+
+  /**
+   * Fetches a single product by its ID, including its variants.
+   */
+  async getProductById(id: string): Promise<Product | null> {
     const { data, error } = await supabase
-      .from('orders')
-      .update({ status })
-      .eq('id', orderId)
-      .select()
+      .from('products')
+      .select(`
+        *,
+        variants:product_variants (
+          *
+        )
+      `)
+      .eq('id', id)
       .single();
 
-    if (error) {
-      console.error('Error updating order status:', error);
-      throw new Error(`Failed to update order status. Supabase error: ${error.message}`);
+    handleSupabaseError(error, `fetching product with id ${id}`);
+    if (data) {
+        const p = { ...data, variants: data.variants || [] };
+        // Map snake_case to camelCase
+        return {
+          ...p,
+          longDescription: p.long_description,
+          variantOptions: p.variant_options,
+          imageUrls: p.image_urls,
+          videoUrl: p.video_url,
+          createdAt: p.created_at,
+          variants: p.variants.map((v: any) => ({
+            ...v,
+            productId: v.product_id,
+            imageUrls: v.image_urls,
+            videoUrl: v.video_url,
+          }))
+        };
     }
-    return data as FullOrder;
+    return null;
   },
 
-  // Send a contact form message
-  async sendContactMessage(formData: ContactFormData): Promise<{ success: boolean }> {
-    const { data, error } = await supabase.functions.invoke('send-contact-email', {
+  /**
+   * Adds a new product and its associated variants to the database.
+   */
+  async addProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
+    const { variants, ...productInfo } = productData;
+
+    // Map camelCase from app to snake_case for DB
+    const productToInsert = {
+        name: productInfo.name,
+        category: productInfo.category,
+        long_description: productInfo.longDescription,
+        variant_options: productInfo.variantOptions,
+        image_urls: productInfo.imageUrls,
+        video_url: productInfo.videoUrl,
+    };
+
+    const { data: newProduct, error: productError } = await supabase
+      .from('products')
+      .insert(productToInsert)
+      .select('id')
+      .single();
+
+    handleSupabaseError(productError, 'adding new product');
+    if (!newProduct) throw new Error('Failed to get ID for new product.');
+
+    if (variants && variants.length > 0) {
+      const variantsToInsert = variants.map(v => ({
+        ...v,
+        product_id: newProduct.id,
+        image_urls: v.imageUrls,
+        video_url: v.videoUrl
+      }));
+      const { error: variantError } = await supabase
+        .from('product_variants')
+        .insert(variantsToInsert);
+      
+      handleSupabaseError(variantError, 'adding product variants');
+    }
+  },
+
+  /**
+   * Updates an existing product and its variants.
+   */
+  async updateProduct(id: string, productData: Omit<Product, 'id' | 'createdAt'>): Promise<void> {
+    const { variants, ...productInfo } = productData;
+
+    const productToUpdate = {
+        name: productInfo.name,
+        category: productInfo.category,
+        long_description: productInfo.longDescription,
+        variant_options: productInfo.variantOptions,
+        image_urls: productInfo.imageUrls,
+        video_url: productInfo.videoUrl,
+    };
+
+    const { error: productError } = await supabase
+      .from('products')
+      .update(productToUpdate)
+      .eq('id', id);
+    handleSupabaseError(productError, `updating product with id ${id}`);
+
+    if (variants) {
+      const { data: currentVariants, error: fetchError } = await supabase
+        .from('product_variants')
+        .select('id')
+        .eq('product_id', id);
+      handleSupabaseError(fetchError, 'fetching current variants for update');
+
+      const currentVariantIds = currentVariants?.map(v => v.id) || [];
+      const incomingVariantIds = variants.map(v => v.id).filter(Boolean);
+
+      const variantsToDelete = currentVariantIds.filter(vid => !incomingVariantIds.includes(vid));
+      if (variantsToDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('product_variants')
+          .delete()
+          .in('id', variantsToDelete);
+        handleSupabaseError(deleteError, 'deleting old product variants');
+      }
+      
+      const variantsToUpsert = variants.map(v => ({
+        ...v,
+        product_id: id,
+        id: v.id || undefined, 
+        image_urls: v.imageUrls,
+        video_url: v.videoUrl
+      }));
+      
+      if (variantsToUpsert.length > 0) {
+          const { error: upsertError } = await supabase
+            .from('product_variants')
+            .upsert(variantsToUpsert, { onConflict: 'id' });
+          handleSupabaseError(upsertError, 'upserting product variants');
+      }
+    }
+  },
+
+  /**
+   * Deletes a product from the database.
+   */
+  async deleteProduct(id: string): Promise<void> {
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    handleSupabaseError(error, `deleting product with id ${id}`);
+  },
+
+  /**
+   * Uploads a media file (image/video) to Supabase Storage.
+   */
+  async uploadProductMedia(file: File): Promise<string> {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random()}.${fileExt}`;
+    const filePath = `public/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('product_media')
+      .upload(filePath, file);
+
+    handleSupabaseError(uploadError, 'uploading product media');
+
+    const { data } = supabase.storage.from('product_media').getPublicUrl(filePath);
+    return data.publicUrl;
+  },
+
+  /**
+   * Fetches all orders with detailed information about customers and items.
+   */
+  async getOrders(): Promise<FullOrder[]> {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        customers (*),
+        order_items (
+          quantity,
+          price,
+          product_variants (
+            id, name,
+            products (id, name)
+          )
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    handleSupabaseError(error, 'fetching orders');
+    if (!data) return [];
+    
+    // Transform the data to match the FullOrder type expected by the frontend
+    const transformedData = data.map(order => ({
+      ...order,
+      order_items: order.order_items.map((item: any) => ({
+          quantity: item.quantity,
+          price: item.price,
+          products: item.product_variants && item.product_variants.products ? {
+            id: item.product_variants.products.id,
+            name: item.product_variants.products.name,
+            product_variants: {
+              id: item.product_variants.id,
+              name: item.product_variants.name,
+            },
+          } : null,
+      })),
+    }));
+
+    return transformedData as FullOrder[];
+  },
+
+  /**
+   * Invokes the 'send-contact-email' edge function.
+   */
+  async sendContactMessage(formData: ContactFormData): Promise<void> {
+    const { error } = await supabase.functions.invoke('send-contact-email', {
       body: formData,
     });
-
+    
     if (error) {
-      console.error('Error sending contact message:', error);
-      // Attempt to get a more specific error from the function's response
-      const errorMessage = error.context?.error_cause?.error || `Failed to send message. Supabase function error: ${error.message}`;
-      throw new Error(errorMessage);
+        console.error('Error from send-contact-email function:', error);
+        const errorMessage = (error as any).context?.error_cause?.error 
+            || `Failed to send message. Supabase function error: ${error.message}`;
+        throw new Error(errorMessage);
     }
-
-    return data;
   },
 };

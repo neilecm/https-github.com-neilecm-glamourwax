@@ -32,13 +32,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .from('profiles')
       .select('id, full_name, phone_number, role')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error fetching profile:', error.message);
       return null;
     }
-    return data as Profile;
+    return data as Profile | null;
   }, []);
 
   const checkAdminStatus = useCallback(async (currentUser: User | null) => {

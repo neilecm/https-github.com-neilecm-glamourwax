@@ -6,15 +6,14 @@ declare const Deno: {
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-// Note: Types are inferred from the payload structure for Deno compatibility.
-
-const MIDTRANS_API_URL = 'https://app.sandbox.midtrans.com/snap/v1/transactions';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const MIDTRANS_API_URL = 'https://app.sandbox.midtrans.com/snap/v1/transactions';
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -24,35 +23,37 @@ serve(async (req) => {
   try {
     const { customerDetails, cartItems, shippingOption, subtotal, total } = await req.json();
 
-    if (!customerDetails || !cartItems || !shippingOption || !total) {
-      throw new Error("Missing required order information.");
+    // --- 1. Get Secrets & Supabase Admin Client ---
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const midtransServerKey = Deno.env.get('MIDTRANS_SERVER_KEY');
+
+    if (!supabaseUrl || !supabaseServiceRoleKey || !midtransServerKey) {
+      throw new Error("Missing environment variables in Supabase secrets.");
     }
-    
-    // --- Stage 1: Create a pending order in our database ---
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-    
-    // 1a. Upsert customer
-    const { data: customer, error: customerError } = await supabaseAdmin
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const orderNumber = `CB-${Date.now()}`;
+
+    // --- 2. Create Order in Database (Corrected Logic) ---
+
+    // Step A: Upsert Customer
+    const { data: customerData, error: customerError } = await supabaseAdmin
       .from('customers')
       .upsert({
-        email: customerDetails.email.toLowerCase(),
+        email: customerDetails.email,
         first_name: customerDetails.firstName,
         last_name: customerDetails.lastName,
         phone: customerDetails.phone,
       }, { onConflict: 'email' })
-      .select()
+      .select('id')
       .single();
-
     if (customerError) throw new Error(`DB Error (Customer): ${customerError.message}`);
 
-    // 1b. Insert address
-    const { data: address, error: addressError } = await supabaseAdmin
+    // Step B: Insert Address
+    const { data: addressData, error: addressError } = await supabaseAdmin
       .from('addresses')
       .insert({
-        customer_id: customer.id,
+        customer_id: customerData.id,
         street: customerDetails.address,
         province_id: customerDetails.province.id,
         province_name: customerDetails.province.name,
@@ -64,110 +65,89 @@ serve(async (req) => {
         subdistrict_name: customerDetails.subdistrict?.name,
         postal_code: customerDetails.postalCode,
       })
-      .select()
+      .select('id')
       .single();
-
     if (addressError) throw new Error(`DB Error (Address): ${addressError.message}`);
 
-    // 1c. Insert order record with 'pending_payment' status
-    const orderNumber = `order-cerabrasileira-${Date.now()}`;
-    const { data: order, error: orderError } = await supabaseAdmin
+    // Step C: Insert Order
+    const { data: orderData, error: orderError } = await supabaseAdmin
       .from('orders')
       .insert({
         order_number: orderNumber,
-        customer_id: customer.id,
-        shipping_address_id: address.id,
-        subtotal_amount: subtotal,
-        shipping_amount: shippingOption.cost,
-        total_amount: total,
+        customer_id: customerData.id,
+        shipping_address_id: addressData.id,
         status: 'pending_payment',
-        shipping_provider: shippingOption.code, // Use code for consistency
+        total_amount: Math.round(total),
+        subtotal_amount: Math.round(subtotal),
+        shipping_amount: Math.round(shippingOption.cost),
+        shipping_provider: shippingOption.code.toUpperCase(),
         shipping_service: shippingOption.service,
       })
-      .select()
+      .select('id')
       .single();
-
     if (orderError) throw new Error(`DB Error (Order): ${orderError.message}`);
 
-    // 1d. Insert order items
-    const itemsToInsert = cartItems.map((item: any) => ({
-      order_id: order.id,
-      product_id: item.product.id,
+    // Step D: Insert Order Items
+    const orderItemsToInsert = cartItems.map((item: any) => ({
+      order_id: orderData.id,
+      product_id: item.variant.productId,
       product_variant_id: item.variant.id,
       quantity: item.quantity,
-      price: item.variant.price,
+      price: Math.round(item.variant.price),
     }));
-    const { error: itemsError } = await supabaseAdmin.from('order_items').insert(itemsToInsert);
+    const { error: itemsError } = await supabaseAdmin.from('order_items').insert(orderItemsToInsert);
     if (itemsError) throw new Error(`DB Error (Items): ${itemsError.message}`);
 
-    console.log(`Successfully created pending order ${orderNumber} in database.`);
-
-    // --- Stage 2: Create Midtrans transaction and return token ---
-    const MIDTRANS_SERVER_KEY = Deno.env.get('MIDTRANS_SERVER_KEY');
-    if (!MIDTRANS_SERVER_KEY) {
-      throw new Error("MIDTRANS_SERVER_KEY not set in secrets.");
-    }
-
-    // For reliability, recalculate total and prepare detailed payload for Midtrans
-    // Ensure all amounts are integers as required by Midtrans API.
-    const midtransItemDetails = [
+    // --- 3. Create Midtrans Transaction ---
+    const item_details = [
       ...cartItems.map((item: any) => ({
         id: item.variant.id,
         price: Math.round(item.variant.price),
         quantity: item.quantity,
-        name: `${item.product.name} (${item.variant.name})`.substring(0, 50),
+        name: `${item.product.name} - ${item.variant.name}`.substring(0, 50),
       })),
       {
         id: 'SHIPPING',
         price: Math.round(shippingOption.cost),
         quantity: 1,
-        name: `Shipping: ${shippingOption.name}`.substring(0, 50),
-      }
+        name: `Shipping: ${shippingOption.name}`,
+      },
     ];
 
-    // The gross_amount MUST be the sum of the (price * quantity) of all items
-    const grossAmount = midtransItemDetails.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    const gross_amount = item_details.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
     const midtransPayload = {
-      transaction_details: {
-        order_id: orderNumber,
-        gross_amount: grossAmount,
-      },
-      item_details: midtransItemDetails,
+      transaction_details: { order_id: orderNumber, gross_amount },
+      item_details,
       customer_details: {
         first_name: customerDetails.firstName,
         last_name: customerDetails.lastName,
         email: customerDetails.email,
         phone: customerDetails.phone,
         shipping_address: {
-            first_name: customerDetails.firstName,
-            last_name: customerDetails.lastName,
-            email: customerDetails.email,
-            phone: customerDetails.phone,
-            address: customerDetails.address,
-            city: customerDetails.city.name,
-            postal_code: customerDetails.postalCode,
-            country_code: 'IDN'
+            first_name: customerDetails.firstName, last_name: customerDetails.lastName,
+            email: customerDetails.email, phone: customerDetails.phone, address: customerDetails.address,
+            city: customerDetails.city.name, postal_code: customerDetails.postalCode, country_code: 'IDN'
         }
       },
+      expiry: { unit: "day", duration: 1 }
     };
 
-    const encodedKey = btoa(`${MIDTRANS_SERVER_KEY}:`);
     const midtransResponse = await fetch(MIDTRANS_API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Basic ${encodedKey}`,
-      },
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'Authorization': `Basic ${btoa(midtransServerKey + ':')}` },
       body: JSON.stringify(midtransPayload),
     });
-
+    
     const midtransJson = await midtransResponse.json();
     if (!midtransResponse.ok) {
-      throw new Error(`[Midtrans API] ${midtransJson.error_messages?.join(', ') || 'Unknown API error'}`);
+      throw new Error(`[Midtrans API] ${midtransJson.error_messages?.join(', ') || 'Failed to create transaction.'}`);
     }
-
+    if (!midtransJson.token) {
+        throw new Error("Midtrans did not return a transaction token.");
+    }
+    
+    // --- 4. Return Token and Order ID to Client ---
     return new Response(JSON.stringify({ token: midtransJson.token, orderId: orderNumber }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
