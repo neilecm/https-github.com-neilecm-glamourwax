@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { rajaOngkirService } from '../services/rajaOngkirService';
 import { midtransService } from '../services/midtransService';
-import { supabaseService } from '../services/supabaseService';
 import Spinner from '../components/Spinner';
 import type { Province, City, District, Subdistrict, ShippingOption, CustomerDetails } from '../types';
 
@@ -156,40 +155,39 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
         subdistrict: selectedSubdistrict,
     };
     
-    const subtotal = cartTotal;
-    const total = subtotal + selectedShipping.cost;
-    
     try {
-        const token = await midtransService.createTransaction(fullCustomerDetails, cartItems, selectedShipping.cost, subtotal);
+        // This single call now creates the pending order in our DB 
+        // AND gets the Midtrans transaction token.
+        const { token, orderId } = await midtransService.createTransaction(
+            fullCustomerDetails, 
+            cartItems, 
+            selectedShipping
+        );
         
-        const handlePaymentResult = async (result: any) => {
-          try {
-            await supabaseService.createOrder(fullCustomerDetails, cartItems, selectedShipping, subtotal, total, result);
-            clearCart();
-            if (result.status_code === '200') {
-              onOrderSuccess(result.order_id);
-            } else if (result.status_code === '201') {
-              onOrderPending(result.order_id);
-            } else {
-              onOrderFailed(result.status_message || 'Payment was not successful.');
-            }
-          } catch(err: any) {
-              console.error("Failed to save order to database:", err);
-              onOrderFailed("Your payment was processed, but we had trouble saving your order. Please contact support with your Order ID: " + result.order_id);
-          }
-        };
-
+        // The client-side callbacks are now only responsible for navigation.
+        // The actual order status update is handled by the server-side webhook.
         midtransService.openPaymentGateway(
             token,
-            handlePaymentResult, // onSuccess
-            handlePaymentResult, // onPending
+            (result) => { // onSuccess
+                console.log("Payment successful on client:", result);
+                clearCart();
+                onOrderSuccess(result.order_id);
+            },
+            (result) => { // onPending
+                console.log("Payment pending on client:", result);
+                clearCart();
+                onOrderPending(result.order_id);
+            },
             (result) => { // onError
-                console.log("Payment failed.", result);
-                onOrderFailed(result.status_message || 'Please try again or use a different payment method.');
+                console.error("Midtrans payment error:", result);
+                // We don't call onOrderFailed here because the webhook will eventually update the status to 'failed'.
+                // Instead, we just show a client-side error.
+                setError(result.status_message || 'Payment failed. Please try again.');
                 setIsLoading(prev => ({ ...prev, payment: false }));
             },
             () => { // onClose
                 console.log("Payment popup closed by user.");
+                // The order is already in 'pending_payment' state. The user can try to pay again later.
                 setIsLoading(prev => ({ ...prev, payment: false }));
             }
         );

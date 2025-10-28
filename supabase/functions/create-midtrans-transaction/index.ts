@@ -5,8 +5,9 @@ declare const Deno: {
 };
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Note: Types are inferred from the payload structure for Deno compatibility.
 
-// Midtrans API configuration
 const MIDTRANS_API_URL = 'https://app.sandbox.midtrans.com/snap/v1/transactions';
 
 const corsHeaders = {
@@ -15,37 +16,112 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// FIX: The custom btoa polyfill was removed. It contained Node.js-specific code (`Buffer`)
-// that is not available in the Deno runtime, causing an error. Deno provides a built-in
-// `btoa` function that can be used directly.
-
 serve(async (req) => {
-  console.log("create-midtrans-transaction function invoked.");
-
   if (req.method === 'OPTIONS') {
-    console.log("Handling OPTIONS request.");
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const payload = await req.json();
-    console.log("Received payload for Midtrans:", JSON.stringify(payload, null, 2));
-    if (!payload.transaction_details || !payload.customer_details) {
-      throw new Error("Invalid payload: transaction_details and customer_details are required.");
-    }
+    const { customerDetails, cartItems, shippingOption, subtotal, total } = await req.json();
 
-    console.log("Retrieving MIDTRANS_SERVER_KEY from secrets...");
+    if (!customerDetails || !cartItems || !shippingOption || !total) {
+      throw new Error("Missing required order information.");
+    }
+    
+    // --- Stage 1: Create a pending order in our database ---
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    // 1a. Upsert customer
+    const { data: customer, error: customerError } = await supabaseAdmin
+      .from('customers')
+      .upsert({
+        email: customerDetails.email.toLowerCase(),
+        first_name: customerDetails.firstName,
+        last_name: customerDetails.lastName,
+        phone: customerDetails.phone,
+      }, { onConflict: 'email' })
+      .select()
+      .single();
+
+    if (customerError) throw new Error(`DB Error (Customer): ${customerError.message}`);
+
+    // 1b. Insert address
+    const { data: address, error: addressError } = await supabaseAdmin
+      .from('addresses')
+      .insert({
+        customer_id: customer.id,
+        street: customerDetails.address,
+        province_id: customerDetails.province.id,
+        province_name: customerDetails.province.name,
+        city_id: customerDetails.city.id,
+        city_name: customerDetails.city.name,
+        district_id: customerDetails.district.id,
+        district_name: customerDetails.district.name,
+        subdistrict_id: customerDetails.subdistrict?.id,
+        subdistrict_name: customerDetails.subdistrict?.name,
+        postal_code: customerDetails.postalCode,
+      })
+      .select()
+      .single();
+
+    if (addressError) throw new Error(`DB Error (Address): ${addressError.message}`);
+
+    // 1c. Insert order record with 'pending_payment' status
+    const orderNumber = `order-cerabrasileira-${Date.now()}`;
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .insert({
+        order_number: orderNumber,
+        customer_id: customer.id,
+        shipping_address_id: address.id,
+        subtotal_amount: subtotal,
+        shipping_amount: shippingOption.cost,
+        total_amount: total,
+        status: 'pending_payment',
+        shipping_provider: shippingOption.code, // Use code for consistency
+        shipping_service: shippingOption.service,
+      })
+      .select()
+      .single();
+
+    if (orderError) throw new Error(`DB Error (Order): ${orderError.message}`);
+
+    // 1d. Insert order items
+    const itemsToInsert = cartItems.map((item: any) => ({
+      order_id: order.id,
+      product_id: item.product.id,
+      product_variant_id: item.variant.id,
+      quantity: item.quantity,
+      price: item.variant.price,
+    }));
+    const { error: itemsError } = await supabaseAdmin.from('order_items').insert(itemsToInsert);
+    if (itemsError) throw new Error(`DB Error (Items): ${itemsError.message}`);
+
+    console.log(`Successfully created pending order ${orderNumber} in database.`);
+
+    // --- Stage 2: Create Midtrans transaction and return token ---
     const MIDTRANS_SERVER_KEY = Deno.env.get('MIDTRANS_SERVER_KEY');
     if (!MIDTRANS_SERVER_KEY) {
-        console.error("MIDTRANS_SERVER_KEY not set in secrets.");
-        throw new Error("MIDTRANS_SERVER_KEY not set in secrets. Please add it to your Supabase project's secrets.");
+      throw new Error("MIDTRANS_SERVER_KEY not set in secrets.");
     }
-    console.log("MIDTRANS_SERVER_KEY retrieved successfully.");
 
-    // Midtrans requires the server key to be base64 encoded for Basic Authentication, with a colon appended.
+    const midtransPayload = {
+      transaction_details: {
+        order_id: orderNumber,
+        gross_amount: total,
+      },
+      customer_details: {
+        first_name: customerDetails.firstName,
+        last_name: customerDetails.lastName,
+        email: customerDetails.email,
+        phone: customerDetails.phone,
+      },
+    };
+
     const encodedKey = btoa(`${MIDTRANS_SERVER_KEY}:`);
-
-    console.log(`Sending request to Midtrans API at ${MIDTRANS_API_URL}`);
     const midtransResponse = await fetch(MIDTRANS_API_URL, {
       method: 'POST',
       headers: {
@@ -53,26 +129,15 @@ serve(async (req) => {
         'Accept': 'application/json',
         'Authorization': `Basic ${encodedKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(midtransPayload),
     });
-    
-    console.log(`Midtrans API response status: ${midtransResponse.status}`);
+
     const midtransJson = await midtransResponse.json();
-
     if (!midtransResponse.ok) {
-        console.error("Midtrans API Error:", JSON.stringify(midtransJson, null, 2));
-        const errorMessage = midtransJson.error_messages ? midtransJson.error_messages.join(', ') : 'Unknown Midtrans API error';
-        throw new Error(`[Midtrans API] ${errorMessage}`);
+      throw new Error(`[Midtrans API] ${midtransJson.error_messages?.join(', ') || 'Unknown API error'}`);
     }
 
-    if (!midtransJson.token) {
-        console.error("Midtrans API did not return a token:", JSON.stringify(midtransJson, null, 2));
-        throw new Error("Midtrans API response did not include a transaction token.");
-    }
-    
-    console.log("Successfully created Midtrans transaction. Returning token.");
-
-    return new Response(JSON.stringify({ token: midtransJson.token }), {
+    return new Response(JSON.stringify({ token: midtransJson.token, orderId: orderNumber }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

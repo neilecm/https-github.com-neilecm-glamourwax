@@ -1,23 +1,6 @@
 // FIX: Removed unused 'Order' type which is not exported from '../types'.
-import type { CustomerDetails, CartItem } from '../types';
+import type { CustomerDetails, CartItem, ShippingOption } from '../types';
 import { supabase } from './supabase';
-
-interface MidtransTransactionDetails {
-  order_id: string;
-  gross_amount: number;
-}
-
-interface MidtransCustomerDetails {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-}
-
-interface MidtransPayload {
-  transaction_details: MidtransTransactionDetails;
-  customer_details: MidtransCustomerDetails;
-}
 
 declare global {
     interface Window {
@@ -29,26 +12,21 @@ export const midtransService = {
   createTransaction: async (
       customerDetails: CustomerDetails, 
       cartItems: CartItem[], 
-      shippingCost: number, 
-      subtotal: number): Promise<string> => {
+      shippingOption: ShippingOption
+  ): Promise<{ token: string, orderId: string }> => {
     
-    const orderId = `order-cerabrasileira-${Date.now()}`;
-    const totalAmount = subtotal + shippingCost;
+    const subtotal = cartItems.reduce((acc, item) => acc + item.variant.price * item.quantity, 0);
+    const total = subtotal + shippingOption.cost;
     
-    const payload: MidtransPayload = {
-      transaction_details: {
-        order_id: orderId,
-        gross_amount: totalAmount,
-      },
-      customer_details: {
-        first_name: customerDetails.firstName,
-        last_name: customerDetails.lastName,
-        email: customerDetails.email,
-        phone: customerDetails.phone,
-      },
+    const payload = {
+      customerDetails,
+      cartItems,
+      shippingOption,
+      subtotal,
+      total,
     };
 
-    console.log("Invoking Supabase function 'create-midtrans-transaction' with payload:", payload);
+    console.log("Invoking 'create-midtrans-transaction' function to create pending order and get token:", payload);
 
     const { data, error } = await supabase.functions.invoke('create-midtrans-transaction', {
         body: payload,
@@ -56,18 +34,17 @@ export const midtransService = {
     
     if (error) {
         console.error('Error creating Midtrans transaction:', error);
-        // Try to provide a more specific error message from the function response
         const errorMessage = error.context?.error_cause?.error || `Failed to create payment transaction. Supabase function error: ${error.message}`;
         throw new Error(errorMessage);
     }
     
-    if (!data?.token) {
-        console.error('Supabase function did not return a Midtrans token.', data);
+    if (!data?.token || !data?.orderId) {
+        console.error('Supabase function did not return a Midtrans token or Order ID.', data);
         throw new Error('Could not retrieve payment token. Please try again.');
     }
 
-    console.log("Successfully received Midtrans token from Supabase function.");
-    return data.token;
+    console.log("Successfully received Midtrans token and Order ID from Supabase function.");
+    return { token: data.token, orderId: data.orderId };
   },
 
   openPaymentGateway: (token: string, onSuccess: (result: any) => void, onPending: (result: any) => void, onError: (result: any) => void, onClose: () => void) => {
