@@ -67,26 +67,46 @@ serve(async (req) => {
     if (error) {
       throw new Error(`DB Error (Fetching Orders): ${error.message}`);
     }
-    if (!data) {
+    if (!data || data.length === 0) {
+      console.log("DB query returned no orders.");
       return new Response(JSON.stringify([]), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 
-    // --- Transform Data to Match Frontend Type ---
-    const transformedData = data.map(order => ({
-      ...order,
-      order_items: order.order_items.map((item: any) => ({
-          quantity: item.quantity,
-          price: item.price,
-          products: item.product_variants && item.product_variants.products ? {
-            id: item.product_variants.products.id,
-            name: item.product_variants.products.name,
-            product_variants: {
-              id: item.product_variants.id,
-              name: item.product_variants.name,
-            },
-          } : null,
-      })),
-    }));
+    console.log(`DB query returned ${data.length} orders. Starting transformation...`);
+
+    // --- Transform Data to Match Frontend Type (with added resilience) ---
+    const transformedData = [];
+    for (const order of data) {
+      try {
+        const transformedOrder = {
+          ...order,
+          order_items: (order.order_items || []).map((item: any) => {
+            if (!item.product_variants || !item.product_variants.products) {
+                console.warn(`Skipping order item for order ${order.order_number} due to missing product/variant data.`);
+                return null;
+            }
+            return {
+              quantity: item.quantity,
+              price: item.price,
+              products: {
+                id: item.product_variants.products.id,
+                name: item.product_variants.products.name,
+                product_variants: {
+                  id: item.product_variants.id,
+                  name: item.product_variants.name,
+                },
+              },
+            };
+          }).filter(Boolean), // Filter out any null items that were skipped
+        };
+        transformedData.push(transformedOrder);
+      } catch (transformError) {
+          console.error(`Failed to transform order ${order.order_number} (ID: ${order.id}):`, transformError.message);
+          // Skip this order instead of crashing the entire function
+      }
+    }
+    
+    console.log(`Successfully transformed ${transformedData.length} of ${data.length} orders.`);
 
     return new Response(JSON.stringify(transformedData), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
