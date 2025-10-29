@@ -54,12 +54,12 @@ export const komerceService = {
   },
 
   /**
-   * Gets the base64-encoded PDF for an order's shipping label.
-   * @param orderNo The internal order number (e.g., "CB-12345").
+   * Gets the base64-encoded PDF for one or more shipping labels.
+   * @param orderNos An array of internal order numbers (e.g., ["CB-12345"]).
    */
-  async printWaybill(orderNo: string): Promise<{ base_64: string }> {
+  async printWaybill(orderNos: string[]): Promise<{ base_64: string }> {
     return await invokeFunction('print-waybill', {
-      body: { orderNo },
+      body: { orderNos },
     });
   },
 };

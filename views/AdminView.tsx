@@ -1,5 +1,3 @@
-// views/AdminView.tsx
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { komerceService } from '../services/komerceService';
@@ -49,17 +47,18 @@ const OrderRow: React.FC<{ order: FullOrder; onRefresh: () => void; }> = ({ orde
         );
     };
 
-    const handlePrintWaybill = async (orderNo: string) => {
-        if (isProcessing) return;
+    const handlePrintWaybill = async (orderNos: string[]) => {
+        if (isProcessing || orderNos.length === 0) return;
         setIsProcessing(true);
         setError(null);
         try {
-            const { base_64 } = await komerceService.printWaybill(orderNo);
+            const { base_64 } = await komerceService.printWaybill(orderNos);
             const pdfBlob = new Blob([Uint8Array.from(atob(base_64), c => c.charCodeAt(0))], { type: 'application/pdf' });
             const url = window.URL.createObjectURL(pdfBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `waybill-${orderNo}.pdf`;
+            const fileName = orderNos.length > 1 ? `waybills-bulk.pdf` : `waybill-${orderNos[0]}.pdf`;
+            a.download = fileName;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -102,7 +101,7 @@ const OrderRow: React.FC<{ order: FullOrder; onRefresh: () => void; }> = ({ orde
                      <button onClick={() => handleAction(() => komerceService.arrangePickup(order.order_number), 'Pickup arranged successfully!')} disabled={isProcessing} className="text-xs bg-purple-500 text-white px-2 py-1 rounded hover:bg-purple-600 disabled:bg-purple-300">Arrange Pickup</button>
                 )}
                 {order.status === 'shipped' && order.awb_number && (
-                    <button onClick={() => handlePrintWaybill(order.order_number)} disabled={isProcessing} className="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 disabled:bg-gray-300">Print Label</button>
+                    <button onClick={() => handlePrintWaybill([order.order_number])} disabled={isProcessing} className="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 disabled:bg-gray-300">Print Label</button>
                 )}
                  {isProcessing && <Spinner />}
                  {error && <p className="text-red-500 text-xs mt-1">{error}</p>}

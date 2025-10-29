@@ -19,8 +19,10 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
 
   try {
-    const { orderNo } = await req.json(); // This is the internal order number, e.g., "CB-..."
-    if (!orderNo) { throw new Error("orderNo is a required parameter."); }
+    const { orderNos } = await req.json(); // Expecting an array, e.g., ["CB-123", "CB-456"]
+    if (!orderNos || !Array.isArray(orderNos) || orderNos.length === 0) {
+      throw new Error("orderNos (an array of strings) is a required parameter.");
+    }
     
     const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
     const supabaseAdmin = createClient(
@@ -28,23 +30,23 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // --- 1. Get the official Komerce order number from our database ---
-    const { data: order, error: fetchError } = await supabaseAdmin
+    // --- 1. Get the official Komerce order numbers from our database ---
+    const { data: orders, error: fetchError } = await supabaseAdmin
       .from('orders')
       .select('komerce_order_no')
-      .eq('order_number', orderNo)
-      .single();
+      .in('order_number', orderNos);
 
-    if (fetchError) throw new Error(`DB Error (Fetch Order): ${fetchError.message}`);
-    if (!order?.komerce_order_no) {
-      throw new Error(`Cannot print waybill. Order ${orderNo} is missing its Komerce order number.`);
+    if (fetchError) throw new Error(`DB Error (Fetch Orders): ${fetchError.message}`);
+
+    const komerceOrderNos = orders?.map(o => o.komerce_order_no).filter(Boolean);
+    if (!komerceOrderNos || komerceOrderNos.length === 0) {
+      throw new Error(`Cannot print waybill. No valid Komerce order numbers found for the provided orders.`);
     }
-    const komerceOrderNo = order.komerce_order_no;
     
-    // --- 2. Call Komerce API with the correct order number ---
+    // --- 2. Call Komerce API with a comma-separated list of order numbers ---
     const url = new URL(KOMERCE_API_URL);
     url.searchParams.append('page', 'page_5'); // Thermal printer size
-    url.searchParams.append('order_no', komerceOrderNo);
+    url.searchParams.append('order_no', komerceOrderNos.join(','));
     
     const komerceResponse = await fetch(url.toString(), {
       method: 'POST',
