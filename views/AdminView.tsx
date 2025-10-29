@@ -1,210 +1,93 @@
-import React, { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import React, { useState, useEffect, useCallback, ChangeEvent, FormEvent, Fragment } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { komerceService } from '../services/komerceService';
-import type { FullOrder, Product, ProductVariant, ProductVariantOption } from '../types';
+import type { FullOrder, KomerceOrderDetail, Product, ProductVariant, ProductVariantOption } from '../types';
 import Spinner from '../components/Spinner';
 import MarketingView from './MarketingView';
 
-const initialProductState: Omit<Product, 'id' | 'createdAt'> = {
-  name: '',
-  category: '',
-  longDescription: '',
-  variantOptions: [],
-  imageUrls: [],
-  videoUrl: null,
-  variants: [],
+type ActionLoadingState = {
+    [key: string]: boolean;
 };
 
-// --- ProductForm Component ---
-const ProductForm: React.FC<{
-  productToEdit: Product | null;
-  onClose: () => void;
-  onSave: () => void;
-}> = ({ productToEdit, onClose, onSave }) => {
-  const [product, setProduct] = useState<Omit<Product, 'id' | 'createdAt'>>(initialProductState);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (productToEdit) {
-      setProduct({ ...productToEdit });
-    } else {
-      setProduct(initialProductState);
-    }
-  }, [productToEdit]);
-
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setProduct(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleVariantChange = (index: number, field: keyof Omit<ProductVariant, 'id' | 'productId'>, value: any) => {
-    const updatedVariants = [...product.variants];
-    // @ts-ignore
-    updatedVariants[index][field] = value;
-    setProduct(prev => ({ ...prev, variants: updatedVariants }));
-  };
-
-  const addVariant = () => {
-    const newVariant: any = { name: '', price: 0, weight: 0, stock: 0, imageUrls: [], options: {} };
-    setProduct(prev => ({ ...prev, variants: [...prev.variants, newVariant] }));
-  };
-
-  const removeVariant = (index: number) => {
-    setProduct(prev => ({ ...prev, variants: prev.variants.filter((_, i) => i !== index) }));
-  };
-
-  const handleSave = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (productToEdit) {
-        await supabaseService.updateProduct(productToEdit.id, product);
-      } else {
-        await supabaseService.addProduct(product);
-      }
-      onSave();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save product.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <h2 className="text-2xl font-bold mb-4">{productToEdit ? 'Edit Product' : 'Add New Product'}</h2>
-          {error && <div className="text-red-500 bg-red-100 p-3 rounded-md mb-4">{error}</div>}
-          <div className="space-y-4">
-            <input name="name" placeholder="Product Name" value={product.name} onChange={handleInputChange} className="p-2 border rounded-md w-full" />
-            <input name="category" placeholder="Category" value={product.category} onChange={handleInputChange} className="p-2 border rounded-md w-full" />
-            <textarea name="longDescription" placeholder="Long Description" value={product.longDescription} onChange={handleInputChange} className="p-2 border rounded-md w-full h-24" />
-            
-            <h3 className="font-semibold text-lg border-t pt-4 mt-4">Variants</h3>
-            {product.variants.map((variant, index) => (
-              <div key={index} className="p-3 border rounded-md space-y-2 bg-gray-50">
-                <input placeholder="Variant Name (e.g., Red, 500g)" value={variant.name} onChange={(e) => handleVariantChange(index, 'name', e.target.value)} className="p-2 border rounded-md w-full" />
-                <div className="grid grid-cols-3 gap-2">
-                    <input type="number" placeholder="Price" value={variant.price} onChange={(e) => handleVariantChange(index, 'price', parseFloat(e.target.value))} className="p-2 border rounded-md w-full" />
-                    <input type="number" placeholder="Weight (g)" value={variant.weight} onChange={(e) => handleVariantChange(index, 'weight', parseInt(e.target.value, 10))} className="p-2 border rounded-md w-full" />
-                    <input type="number" placeholder="Stock" value={variant.stock} onChange={(e) => handleVariantChange(index, 'stock', parseInt(e.target.value, 10))} className="p-2 border rounded-md w-full" />
-                </div>
-                <button onClick={() => removeVariant(index)} className="text-red-500 text-sm">Remove Variant</button>
-              </div>
-            ))}
-            <button onClick={addVariant} className="text-pink-500 font-semibold">+ Add Variant</button>
-          </div>
-        </div>
-        <div className="bg-gray-100 p-4 flex justify-end gap-4 sticky bottom-0">
-          <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 hover:bg-gray-300">Cancel</button>
-          <button onClick={handleSave} disabled={isLoading} className="px-4 py-2 rounded-md bg-pink-500 text-white hover:bg-pink-600 disabled:bg-pink-300">
-            {isLoading ? <Spinner /> : 'Save Product'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-// --- ProductsTab Component ---
-const ProductsTab: React.FC = () => {
-    const [products, setProducts] = useState<Product[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [isFormOpen, setIsFormOpen] = useState(false);
-    const [productToEdit, setProductToEdit] = useState<Product | null>(null);
-
-    const fetchProducts = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await supabaseService.getProducts();
-            setProducts(data);
-        } catch (err: any) {
-            setError(err.message || 'Failed to fetch products.');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchProducts();
-    }, [fetchProducts]);
-
-    const handleAdd = () => {
-        setProductToEdit(null);
-        setIsFormOpen(true);
-    };
-
-    const handleEdit = (product: Product) => {
-        setProductToEdit(product);
-        setIsFormOpen(true);
-    };
-
-    const handleDelete = async (productId: string) => {
-        if (window.confirm('Are you sure you want to delete this product?')) {
-            try {
-                await supabaseService.deleteProduct(productId);
-                fetchProducts();
-            } catch (err: any) {
-                setError(err.message || 'Failed to delete product.');
-            }
-        }
-    };
-    
-    const handleSave = () => {
-        setIsFormOpen(false);
-        fetchProducts();
-    };
-
+// Modal Component for Shipping Details
+const ShippingDetailModal: React.FC<{ details: KomerceOrderDetail | null; onClose: () => void; isLoading: boolean }> = ({ details, onClose, isLoading }) => {
     return (
-        <div>
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-semibold">Manage Products</h2>
-                <button onClick={handleAdd} className="bg-pink-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-pink-600">
-                    + Add Product
-                </button>
-            </div>
-            {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>}
-            {isLoading ? <Spinner /> : (
-                <div className="space-y-3">
-                    {products.map(product => (
-                        <div key={product.id} className="bg-gray-50 p-4 rounded-lg flex justify-between items-center">
-                            <div>
-                                <p className="font-bold text-lg">{product.name}</p>
-                                <p className="text-sm text-gray-500">{product.category} - {product.variants.length} variant(s)</p>
-                            </div>
-                            <div className="space-x-2">
-                                <button onClick={() => handleEdit(product)} className="text-blue-500 hover:underline">Edit</button>
-                                <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:underline">Delete</button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center border-b pb-3 mb-4">
+                    <h2 className="text-xl font-bold">Shipping Details</h2>
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+                </div>
+                {isLoading ? <Spinner /> : details && (
+                    <div className="space-y-4 text-sm">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><strong>Order Number:</strong> {details.order_no}</div>
+                            <div><strong>Status:</strong> <span className="font-semibold text-blue-600">{details.order_status}</span></div>
+                            <div><strong>AWB / Tracking:</strong> {details.awb || 'Not available'}</div>
+                             <div><strong>Courier:</strong> {details.shipping} ({details.shipping_type})</div>
+                        </div>
+
+                        {details.live_tracking_url && (
+                            <a href={details.live_tracking_url} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:underline">
+                                Track Shipment &rarr;
+                            </a>
+                        )}
+
+                        <div className="border-t pt-4">
+                            <h3 className="font-semibold mb-2">Recipient</h3>
+                            <p>{details.receiver_name}</p>
+                            <p>{details.receiver_phone}</p>
+                            <p className="text-gray-600">{details.receiver_address}</p>
+                        </div>
+                         <div className="border-t pt-4">
+                            <h3 className="font-semibold mb-2">Cost Breakdown</h3>
+                            <div className="grid grid-cols-2 gap-x-4">
+                                <div>Shipping:</div> <div>Rp{details.shipping_cost?.toLocaleString('id-ID')}</div>
+                                <div>Cashback:</div> <div>- Rp{details.shipping_cashback?.toLocaleString('id-ID')}</div>
+                                <div>Insurance:</div> <div>Rp{details.insurance_value?.toLocaleString('id-ID')}</div>
+                                <div>Service Fee:</div> <div>Rp{details.service_fee?.toLocaleString('id-ID')}</div>
+                                <div className="font-bold border-t pt-1 mt-1">Grand Total:</div> <div className="font-bold border-t pt-1 mt-1">Rp{details.grand_total?.toLocaleString('id-ID')}</div>
                             </div>
                         </div>
-                    ))}
-                    {products.length === 0 && <p className="text-center py-8 text-gray-500">No products found. Add one to get started!</p>}
-                </div>
-            )}
-            {isFormOpen && <ProductForm productToEdit={productToEdit} onClose={() => setIsFormOpen(false)} onSave={handleSave} />}
+                        <div className="border-t pt-4">
+                            <h3 className="font-semibold mb-2">Items</h3>
+                            <ul>
+                                {details.order_details.map((item, index) => (
+                                    <li key={index} className="flex justify-between">
+                                        <span>{item.product_name} ({item.product_variant_name}) x {item.qty}</span>
+                                        <span>Rp{item.subtotal.toLocaleString('id-ID')}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
 
-// --- OrdersTab Component ---
-const OrdersTab: React.FC = () => {
+
+const OrdersManager: React.FC = () => {
     const [orders, setOrders] = useState<FullOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [actionLoading, setActionLoading] = useState<ActionLoadingState>({});
+    
+    // State for the details modal
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [selectedOrderDetails, setSelectedOrderDetails] = useState<KomerceOrderDetail | null>(null);
+    const [isModalLoading, setIsModalLoading] = useState(false);
+
 
     const fetchOrders = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
         try {
+            setIsLoading(true);
+            setError(null);
             const data = await supabaseService.getOrders();
             setOrders(data);
         } catch (err: any) {
-            setError(err.message || 'Failed to fetch orders.');
+            setError(err.message || "Failed to fetch orders.");
         } finally {
             setIsLoading(false);
         }
@@ -214,90 +97,212 @@ const OrdersTab: React.FC = () => {
         fetchOrders();
     }, [fetchOrders]);
     
-    // In a real app, you would have a modal for details, but for simplicity, we'll just list them.
+    const handleAction = async (orderId: string, action: () => Promise<any>) => {
+        setActionLoading(prev => ({ ...prev, [orderId]: true }));
+        setError(null);
+        try {
+            await action();
+            await fetchOrders(); // Refresh the list after action
+        } catch (err: any) {
+            setError(`Action failed: ${err.message}`);
+        } finally {
+            setActionLoading(prev => ({ ...prev, [orderId]: false }));
+        }
+    };
+
+    const handleSubmitToKomerce = (order: FullOrder) => {
+        handleAction(`submit-${order.id}`, () => komerceService.submitOrderToKomerce(order.id));
+    };
+
+    const handleArrangePickup = (order: FullOrder) => {
+        handleAction(`pickup-${order.order_number}`, () => komerceService.arrangePickup(order.order_number));
+    };
     
+    const handlePrintWaybill = async (order: FullOrder) => {
+        const actionId = `waybill-${order.order_number}`;
+        setActionLoading(prev => ({ ...prev, [actionId]: true }));
+        setError(null);
+        try {
+            // The service now handles bulk printing, so we pass an array
+            const pdfBlob = await komerceService.printWaybill([order.order_number]);
+            const url = URL.createObjectURL(pdfBlob);
+            window.open(url, '_blank');
+            // Optimistically update the local state to show the waybill is available
+            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, waybill_url: url } : o));
+        } catch(err: any) {
+             setError(`Failed to print waybill for ${order.order_number}: ${err.message}`);
+        } finally {
+            setActionLoading(prev => ({ ...prev, [actionId]: false }));
+        }
+    };
+    
+    const handleVerifyPayment = (order: FullOrder) => {
+        handleAction(`check-${order.order_number}`, async () => {
+            await supabaseService.checkOrderStatus(order.order_number);
+        });
+    };
+
+    const handleShowDetails = async (order: FullOrder) => {
+        if (!order.komerce_order_no) {
+            setError("This order has not been submitted to the shipping partner yet.");
+            return;
+        }
+        setIsModalLoading(true);
+        setIsDetailModalOpen(true);
+        setSelectedOrderDetails(null);
+        setError(null);
+        try {
+            const details = await komerceService.getKomerceOrderDetails(order.order_number);
+            
+            // Merge data: live Komerce data + reliable local cost data
+            const mergedDetails: KomerceOrderDetail = {
+                ...details,
+                shipping_cost: order.shipping_cost_original ?? details.shipping_cost,
+                shipping_cashback: order.shipping_cashback ?? details.shipping_cashback,
+                service_fee: order.service_fee ?? details.service_fee,
+                insurance_value: order.insurance_amount ?? details.insurance_value,
+                grand_total: order.total_amount, // Our DB total is the source of truth
+            };
+
+            setSelectedOrderDetails(mergedDetails);
+        } catch (err: any) {
+            setError(`Failed to fetch shipping details: ${err.message}`);
+            setIsDetailModalOpen(false); // Close modal on error
+        } finally {
+            setIsModalLoading(false);
+        }
+    };
+
+    if (isLoading) return <Spinner />;
+
     return (
         <div>
-            <h2 className="text-2xl font-semibold mb-4">Customer Orders</h2>
-            {error && <div className="text-red-500 bg-red-100 p-4 rounded-lg my-4">{error}</div>}
-            {isLoading ? <Spinner /> : (
-                <div className="overflow-x-auto">
-                    <table className="min-w-full bg-white text-sm">
-                        <thead className="bg-gray-100">
-                            <tr>
-                                <th className="py-3 px-4 text-left font-semibold">Order #</th>
-                                <th className="py-3 px-4 text-left font-semibold">Date</th>
-                                <th className="py-3 px-4 text-left font-semibold">Customer</th>
-                                <th className="py-3 px-4 text-left font-semibold">Total</th>
-                                <th className="py-3 px-4 text-left font-semibold">Status</th>
-                                <th className="py-3 px-4 text-left font-semibold">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {orders.map(order => (
-                                <tr key={order.id} className="border-b hover:bg-gray-50">
-                                    <td className="py-3 px-4 font-mono">{order.order_number}</td>
-                                    <td className="py-3 px-4">{new Date(order.created_at).toLocaleDateString()}</td>
-                                    <td className="py-3 px-4">{order.customers.first_name} {order.customers.last_name}</td>
-                                    <td className="py-3 px-4">Rp{order.total_amount.toLocaleString('id-ID')}</td>
-                                    <td className="py-3 px-4 font-semibold">{order.status}</td>
-                                    <td className="py-3 px-4 space-x-2">
-                                        <button className="text-blue-500 hover:underline">Details</button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                     {orders.length === 0 && <p className="text-center py-8 text-gray-500">No orders found.</p>}
-                </div>
+            {isDetailModalOpen && (
+                <ShippingDetailModal 
+                    details={selectedOrderDetails}
+                    isLoading={isModalLoading}
+                    onClose={() => setIsDetailModalOpen(false)}
+                />
             )}
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-semibold">My Orders</h2>
+                <button onClick={fetchOrders} disabled={isLoading} className="text-sm bg-gray-200 px-3 py-1 rounded-md hover:bg-gray-300 disabled:bg-gray-100">Refresh</button>
+            </div>
+            {error && <div className="bg-red-100 text-red-700 p-3 rounded-md mb-4 break-words">{error}</div>}
+            <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {orders.map(order => (
+                            <tr key={order.id}>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <button onClick={() => handleShowDetails(order)} disabled={!order.komerce_order_no} className="text-sm font-medium text-pink-600 hover:underline disabled:text-gray-500 disabled:no-underline">
+                                        {order.order_number}
+                                    </button>
+                                    <div className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="text-sm text-gray-900">{order.customers.first_name} {order.customers.last_name}</div>
+                                    <div className="text-sm text-gray-500">{order.customers.email}</div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Rp{order.total_amount.toLocaleString('id-ID')}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                        order.status === 'paid' ? 'bg-green-100 text-green-800' :
+                                        order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
+                                        order.status === 'pending_payment' ? 'bg-yellow-100 text-yellow-800' :
+                                        order.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }`}>
+                                        {order.status.replace('_', ' ')}
+                                    </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                                     {order.status === 'pending_payment' && (
+                                         <button onClick={() => handleVerifyPayment(order)} disabled={actionLoading[`check-${order.order_number}`]} className="bg-yellow-500 text-white px-2 py-1 rounded disabled:bg-yellow-300">
+                                            {actionLoading[`check-${order.order_number}`] ? 'Verifying...' : 'Verify'}
+                                        </button>
+                                    )}
+                                    {order.status === 'paid' && (
+                                        <button onClick={() => handleSubmitToKomerce(order)} disabled={actionLoading[`submit-${order.id}`]} className="bg-blue-500 text-white px-2 py-1 rounded disabled:bg-blue-300">
+                                            {actionLoading[`submit-${order.id}`] ? 'Submitting...' : 'Submit to Komerce'}
+                                        </button>
+                                    )}
+                                    {order.status === 'processing' && (
+                                         <button onClick={() => handleArrangePickup(order)} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
+                                            {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
+                                        </button>
+                                    )}
+                                     {(order.status === 'shipped' || (order.status === 'processing' && order.awb_number)) && (
+                                        <button onClick={() => handlePrintWaybill(order)} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded disabled:bg-gray-300">
+                                            {actionLoading[`waybill-${order.order_number}`] ? 'Printing...' : 'Print Label'}
+                                        </button>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                 {orders.length === 0 && <div className="text-center py-8 text-gray-500">No orders found.</div>}
+            </div>
         </div>
     );
 };
 
 
-const AdminView: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'marketing'>('orders');
+const ProductsManager: React.FC = () => {
+    return <div className="text-gray-500">Product management UI is not implemented in this snippet.</div>;
+};
 
-    const renderTabContent = () => {
-        switch (activeTab) {
-            case 'orders':
-                return <OrdersTab />;
-            case 'products':
-                return <ProductsTab />;
-            case 'marketing':
-                return <MarketingView />;
-            default:
-                return null;
-        }
-    };
-    
-    return (
-        <div className="bg-white p-6 md:p-8 rounded-lg shadow-xl min-h-[80vh]">
-            <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
-            <div className="flex border-b mb-6">
-                <button
-                    onClick={() => setActiveTab('orders')}
-                    className={`px-4 py-2 text-lg font-semibold transition-colors ${activeTab === 'orders' ? 'text-pink-600 border-b-2 border-pink-600' : 'text-gray-500 hover:text-pink-500'}`}
-                >
-                    Orders
-                </button>
-                <button
-                    onClick={() => setActiveTab('products')}
-                    className={`px-4 py-2 text-lg font-semibold transition-colors ${activeTab === 'products' ? 'text-pink-600 border-b-2 border-pink-600' : 'text-gray-500 hover:text-pink-500'}`}
-                >
-                    Products
-                </button>
-                 <button
-                    onClick={() => setActiveTab('marketing')}
-                    className={`px-4 py-2 text-lg font-semibold transition-colors ${activeTab === 'marketing' ? 'text-pink-600 border-b-2 border-pink-600' : 'text-gray-500 hover:text-pink-500'}`}
-                >
-                    Marketing Centre
-                </button>
-            </div>
-            <div>{renderTabContent()}</div>
-        </div>
-    );
+
+const AdminView: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'marketing'>('orders');
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'orders':
+        return <OrdersManager />;
+      case 'products':
+        return <ProductsManager />;
+      case 'marketing':
+        return <MarketingView />;
+      default:
+        return null;
+    }
+  };
+
+  const TabButton: React.FC<{ tabName: 'orders' | 'products' | 'marketing', label: string }> = ({ tabName, label }) => (
+    <button
+      onClick={() => setActiveTab(tabName)}
+      className={`px-4 py-2 text-sm font-medium rounded-md ${
+        activeTab === tabName ? 'bg-pink-500 text-white' : 'text-gray-600 hover:bg-gray-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
+      <div className="flex space-x-2 border-b mb-6">
+        <TabButton tabName="orders" label="My Orders" />
+        <TabButton tabName="products" label="Products" />
+        <TabButton tabName="marketing" label="Marketing" />
+      </div>
+      <div>
+        {renderTabContent()}
+      </div>
+    </div>
+  );
 };
 
 export default AdminView;

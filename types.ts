@@ -1,10 +1,8 @@
 // types.ts
 
-// From Product & Cart contexts
 export interface ProductVariant {
   id: string;
-  product_id?: string; // From DB schema
-  productId?: string; // Mapped property
+  productId: string;
   name: string;
   price: number;
   sku: string | null;
@@ -14,17 +12,16 @@ export interface ProductVariant {
   imageUrls: string[];
   videoUrl: string | null;
   options: Record<string, string>;
-  created_at?: string;
 }
 
 export interface ProductVariantOptionValue {
-  value: string;
-  label: string;
+    value: string;
+    label?: string; // e.g., for color swatches
 }
-
+  
 export interface ProductVariantOption {
-  name: string;
-  values: ProductVariantOptionValue[];
+    name: string; // e.g., "Size", "Color"
+    values: ProductVariantOptionValue[];
 }
 
 export interface Product {
@@ -32,70 +29,80 @@ export interface Product {
   name: string;
   category: string;
   longDescription: string;
-  variantOptions: ProductVariantOption[];
   imageUrls: string[];
   videoUrl: string | null;
-  createdAt: string;
   variants: ProductVariant[];
+  variantOptions: ProductVariantOption[];
+  createdAt: string;
 }
 
 export interface CartItem {
   cartItemId: string;
-  product: { id: string; name: string; category: string };
+  product: {
+    id: string;
+    name: string;
+    category: string;
+  };
   variant: ProductVariant;
   quantity: number;
 }
 
+export interface ContactFormData {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}
 
-// From RajaOngkir & Checkout
+// RajaOngkir / Komerce Location Types
 export interface Province {
-  id: number | string;
+  id: string;
   name: string;
 }
 
 export interface City {
-  id: number | string;
+  id: string;
   name: string;
   type?: string;
 }
 
 export interface District {
-  id: number | string;
+  id: string;
   name: string;
 }
 
 export interface Subdistrict {
-  id: number | string;
+  id: string;
   name: string;
 }
 
 export interface ShippingOption {
-  code: string;
-  name: string;
-  service: string;
-  description: string;
-  cost: number;
-  etd: string;
-  shipping_cost_original: number;
-  shipping_cashback: number;
-  service_fee: number;
-  insurance_value: number;
+    code: string;
+    name: string;
+    service: string;
+    description: string;
+    cost: number;
+    etd: string;
+    shipping_cost_original?: number;
+    shipping_cashback?: number;
+    service_fee?: number;
+    insurance_value: number;
 }
 
 export interface CustomerDetails {
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    address: string;
-    postalCode: string;
-    province: { id: string, name: string };
-    city: { id: string, name: string };
-    district: { id: string, name: string };
-    subdistrict: { id: string, name: string } | null;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  address: string;
+  postalCode: string;
+  province: { id: string; name: string; };
+  city: { id: string; name: string; };
+  district: { id: string; name: string; };
+  subdistrict: { id: string; name: string; } | null;
 }
 
-// From Supabase & Admin
+// Order Types
 export interface OrderItem {
     quantity: number;
     price: number;
@@ -109,70 +116,85 @@ export interface OrderItem {
     }
 }
 
-export interface Customer {
-    id: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    phone: string;
-}
-
 export interface FullOrder {
     id: number;
+    created_at: string;
     order_number: string;
     customer_id: string;
-    shipping_address_id: string;
+    shipping_address_id: number;
     status: 'pending_payment' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
     total_amount: number;
     subtotal_amount: number;
     shipping_amount: number;
     shipping_provider: string;
     shipping_service: string;
-    created_at: string;
-    customers: Customer;
-    order_items: OrderItem[];
     komerce_order_no: string | null;
     awb_number: string | null;
     waybill_url: string | null;
+    shipping_cost_original: number | null;
+    shipping_cashback: number | null;
+    service_fee: number | null;
+    insurance_amount: number | null;
+    customers: {
+        id: string;
+        created_at: string;
+        first_name: string;
+        last_name: string;
+        email: string;
+        phone: string;
+    };
+    order_items: OrderItem[];
 }
 
-export interface ContactFormData {
-    name: string;
-    email: string;
-    subject: string;
-    message: string;
-}
-
-// From Komerce
 export interface KomerceOrderDetail {
-    order_no: string;
-    order_date: string;
-    order_time: string;
-    awb: string | null;
-    status_name: string;
-    receiver_name: string;
-    receiver_phone: string;
-    receiver_address: string;
-    // ... add more fields as needed from the actual API response
+  order_no: string;
+  awb: string | null;
+  order_status: string;
+  order_date: string;
+  brand_name: string;
+  shipper_name: string;
+  shipper_phone: string;
+  shipper_address: string;
+  receiver_name: string;
+  receiver_phone: string;
+  receiver_address: string;
+  shipping: string;
+  shipping_type: string;
+  payment_method: string;
+  shipping_cost: number;
+  shipping_cashback: number;
+  service_fee: number;
+  additional_cost: number;
+  grand_total: number;
+  insurance_value: number;
+  live_tracking_url: string | null;
+  order_details: {
+    product_name: string;
+    product_variant_name: string;
+    qty: number;
+    subtotal: number;
+  }[];
 }
 
 
-// From Meta Marketing API
+// Meta Marketing API Types
 export interface MetaAdAccount {
     id: string;
     name: string;
 }
 
+export interface MetaCampaignInsights {
+    spend: string;
+    impressions: string;
+    clicks: string;
+    cpc?: string;
+    ctr?: string;
+}
+
 export interface MetaCampaign {
     id: string;
     name: string;
-    status: 'ACTIVE' | 'PAUSED' | string;
+    status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED';
     objective: string;
-    insights?: {
-        spend: string;
-        impressions: string;
-        clicks: string;
-        cpc: string;
-        ctr: string;
-    };
+    insights: MetaCampaignInsights | null;
 }
