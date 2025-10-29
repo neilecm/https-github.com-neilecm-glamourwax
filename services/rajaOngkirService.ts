@@ -68,7 +68,7 @@ export const rajaOngkirService = {
     });
 
     // Map the raw API response to the ShippingOption[] format the UI expects,
-    // now including the full cost breakdown for accurate order creation.
+    // now including the full cost breakdown and insurance for accurate order creation.
     const mappedOptions: ShippingOption[] = rawServices.map(service => {
         return {
             code: service.shipping_name,
@@ -81,6 +81,8 @@ export const rajaOngkirService = {
             shipping_cost_original: service.shipping_cost,
             shipping_cashback: service.shipping_cashback,
             service_fee: service.service_fee,
+            // Store the pre-calculated insurance value
+            insurance_value: service.insurance_value || 0,
         };
     }).filter(option => option.cost > 0); 
 

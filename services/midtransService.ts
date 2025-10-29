@@ -12,16 +12,18 @@ export const midtransService = {
   createTransaction: async (
       customerDetails: CustomerDetails, 
       cartItems: CartItem[], 
-      shippingOption: ShippingOption
+      shippingOption: ShippingOption,
+      insuranceDetails: { useInsurance: boolean, insuranceAmount: number }
   ): Promise<{ token: string, orderId: string }> => {
     
     const subtotal = cartItems.reduce((acc, item) => acc + item.variant.price * item.quantity, 0);
-    const total = subtotal + shippingOption.cost;
+    const total = subtotal + shippingOption.cost + insuranceDetails.insuranceAmount;
     
     const payload = {
       customerDetails,
       cartItems,
       shippingOption,
+      insuranceDetails,
       subtotal,
       total,
     };

@@ -69,6 +69,9 @@ export interface ShippingOption {
   shipping_cost_original: number;
   shipping_cashback: number;
   service_fee: number;
+
+  // Added to handle insurance calculation
+  insurance_value: number;
 }
 
 

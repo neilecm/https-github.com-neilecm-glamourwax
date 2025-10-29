@@ -15,6 +15,48 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/tariff/api/v1/calculate';
 
+// Helper function to calculate insurance based on Komerce documentation rules
+const calculateInsurance = (courier: string, itemValue: number, grandTotal: number): number => {
+    if (itemValue < 300000) return 0;
+
+    let insuranceValue = 0;
+    const upperCourier = courier.toUpperCase();
+
+    switch (upperCourier) {
+        case 'JNE':
+            insuranceValue = (0.002 * itemValue) + 5000;
+            break;
+        case 'SICEPAT':
+            if (grandTotal > 500000) {
+                insuranceValue = 0.003 * grandTotal;
+            }
+            break;
+        case 'IDEXPRESS':
+            insuranceValue = 0.002 * itemValue;
+            break;
+        case 'SAP':
+            insuranceValue = (0.003 * itemValue) + 2000;
+            break;
+        case 'NINJA':
+            insuranceValue = (itemValue <= 1000000) ? 2500 : (0.0025 * itemValue);
+            break;
+        case 'J&T': // Assuming JNT from the calculate API maps to J&T
+        case 'JNT':
+            insuranceValue = 0.002 * itemValue;
+            break;
+        case 'LION':
+            insuranceValue = 0.003 * itemValue;
+            break;
+        case 'GOSEND':
+            // Docs are unclear on how to select Silver/Gold/Platinum, so we won't offer it for now.
+            insuranceValue = 0;
+            break;
+        default:
+            insuranceValue = 0;
+    }
+    return Math.ceil(insuranceValue);
+};
+
 serve(async (req) => {
   console.log("get-shipping-cost function invoked.");
 
@@ -30,66 +72,50 @@ serve(async (req) => {
       throw new Error("origin, destination, weight, and itemValue are required parameters.");
     }
 
-    console.log("Retrieving KOMERCE_API_KEY from secrets...");
     const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
     if (!KOMERCE_API_KEY) {
-        console.error("KOMERCE_API_KEY not set in secrets.");
         throw new Error("KOMERCE_API_KEY not set in secrets.");
     }
-    console.log("KOMERCE_API_KEY retrieved successfully.");
 
-    // Construct the URL with query parameters for the GET request
     const params = new URLSearchParams({
       shipper_destination_id: origin,
       receiver_destination_id: destination,
-      weight: (weight / 1000).toString(), // Convert grams to kilograms
+      weight: (weight / 1000).toString(),
       item_value: itemValue.toString(),
-      cod: 'yes', // Get all options, including COD and non-COD
-      // Hardcoded pinpoints as they are required for some couriers (like instant)
-      // In a real app, these might be dynamically determined.
-      origin_pin_point: '-8.6705, 115.2124', // Denpasar, Bali
-      destination_pin_point: '-8.6705, 115.2124', // Placeholder, API is lenient for non-instant
+      cod: 'yes',
+      origin_pin_point: '-8.6705, 115.2124',
+      destination_pin_point: '-8.6705, 115.2124',
     });
     
     const endpoint = `${KOMERCE_API_URL}?${params.toString()}`;
-    console.log(`Fetching from endpoint: ${endpoint}`);
-    
     const res = await fetch(endpoint, {
       method: 'GET',
-      headers: {
-        'x-api-key': KOMERCE_API_KEY,
-        'Accept': 'application/json'
-      },
+      headers: { 'x-api-key': KOMERCE_API_KEY, 'Accept': 'application/json' },
     });
 
-    console.log(`API response status: ${res.status}`);
     const json = await res.json();
-
     if (!res.ok || json.meta?.status !== 'success') {
-      console.error("Komerce API Error:", JSON.stringify(json, null, 2));
       throw new Error(`[Komerce API] ${json.meta?.message || res.statusText}`);
     }
 
-    console.log("Successfully fetched shipping costs. Normalizing response for frontend.");
-    
-    // Correctly parse and flatten the Komerce response
-    const allServices: any[] = [];
+    let allServices: any[] = [];
     if (json.data) {
-        if (Array.isArray(json.data.calculate_reguler)) {
-            allServices.push(...json.data.calculate_reguler);
-        }
-        if (Array.isArray(json.data.calculate_cargo)) {
-            allServices.push(...json.data.calculate_cargo);
-        }
-        if (Array.isArray(json.data.calculate_instant)) {
-            allServices.push(...json.data.calculate_instant);
-        }
+        if (Array.isArray(json.data.calculate_reguler)) allServices.push(...json.data.calculate_reguler);
+        if (Array.isArray(json.data.calculate_cargo)) allServices.push(...json.data.calculate_cargo);
+        if (Array.isArray(json.data.calculate_instant)) allServices.push(...json.data.calculate_instant);
     }
+    
+    // Add calculated insurance value to each service
+    const servicesWithInsurance = allServices.map(service => {
+        const grandTotal = itemValue + service.shipping_cost_net;
+        const insurance_value = calculateInsurance(service.shipping_name, itemValue, grandTotal);
+        return { ...service, insurance_value };
+    });
 
     const responseBody = {
-      rajaongkir: { // Keep this wrapper for consistency with other location functions
+      rajaongkir: {
         status: json.meta,
-        results: allServices, // Return the flattened array
+        results: servicesWithInsurance,
       },
     };
 

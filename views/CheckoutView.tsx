@@ -30,6 +30,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
 
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null);
+  const [useInsurance, setUseInsurance] = useState(false);
 
   const [isLoading, setIsLoading] = useState({
     provinces: true, cities: false, districts: false, subdistricts: false, shipping: false, payment: false
@@ -60,6 +61,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     setSelectedDistrict(null); setDistricts([]);
     setSelectedSubdistrict(null); setSubdistricts([]);
     setShippingOptions([]); setSelectedShipping(null);
+    setUseInsurance(false);
     
     if (!provinceId) return;
 
@@ -81,6 +83,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     setSelectedDistrict(null); setDistricts([]);
     setSelectedSubdistrict(null); setSubdistricts([]);
     setShippingOptions([]); setSelectedShipping(null);
+    setUseInsurance(false);
     
     if (!cityId) return;
 
@@ -101,6 +104,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     setSelectedDistrict(district ? { id: district.id.toString(), name: district.name } : null);
     setSelectedSubdistrict(null); setSubdistricts([]);
     setShippingOptions([]); setSelectedShipping(null);
+    setUseInsurance(false);
 
     if (!districtId) return;
 
@@ -137,6 +141,10 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     setCustomer(prev => ({ ...prev, [name]: value }));
   };
 
+  const insuranceCost = useMemo(() => {
+    return useInsurance && selectedShipping ? selectedShipping.insurance_value : 0;
+  }, [useInsurance, selectedShipping]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedShipping || !selectedProvince || !selectedCity || !selectedDistrict) {
@@ -156,38 +164,28 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     };
     
     try {
-        // This single call now creates the pending order in our DB 
-        // AND gets the Midtrans transaction token.
         const { token, orderId } = await midtransService.createTransaction(
             fullCustomerDetails, 
             cartItems, 
-            selectedShipping
+            selectedShipping,
+            { useInsurance, insuranceAmount: insuranceCost }
         );
         
-        // The client-side callbacks are now only responsible for navigation.
-        // The actual order status update is handled by the server-side webhook.
         midtransService.openPaymentGateway(
             token,
             (result) => { // onSuccess
-                console.log("Payment successful on client:", result);
                 clearCart();
                 onOrderSuccess(result.order_id);
             },
             (result) => { // onPending
-                console.log("Payment pending on client:", result);
                 clearCart();
                 onOrderPending(result.order_id);
             },
             (result) => { // onError
-                console.error("Midtrans payment error:", result);
-                // We don't call onOrderFailed here because the webhook will eventually update the status to 'failed'.
-                // Instead, we just show a client-side error.
                 setError(result.status_message || 'Payment failed. Please try again.');
                 setIsLoading(prev => ({ ...prev, payment: false }));
             },
             () => { // onClose
-                console.log("Payment popup closed by user.");
-                // The order is already in 'pending_payment' state. The user can try to pay again later.
                 setIsLoading(prev => ({ ...prev, payment: false }));
             }
         );
@@ -199,7 +197,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
   };
 
   const subtotal = cartTotal;
-  const total = subtotal + (selectedShipping?.cost || 0);
+  const total = subtotal + (selectedShipping?.cost || 0) + insuranceCost;
 
   if (cartCount === 0) {
       return (
@@ -260,8 +258,8 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
                         <h2 className="text-2xl font-semibold mb-4">Shipping Method</h2>
                         <div className="space-y-3">
                             {shippingOptions.map(opt => (
-                                <label key={`${opt.code}-${opt.service}`} className="flex items-center p-4 border rounded-lg cursor-pointer hover:bg-pink-50">
-                                    <input type="radio" name="shipping" onChange={() => setSelectedShipping(opt)} required className="mr-4"/>
+                                <label key={`${opt.code}-${opt.service}`} className="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-pink-50">
+                                    <input type="radio" name="shipping" onChange={() => setSelectedShipping(opt)} required className="mr-4 mt-1"/>
                                     <div className="flex-grow">
                                         <p className="font-semibold">{opt.name} ({opt.service})</p>
                                         <p className="text-sm text-gray-500">{opt.description} (est. {opt.etd})</p>
@@ -270,6 +268,22 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
                                  </label>
                             ))}
                         </div>
+                        {/* Insurance Checkbox */}
+                        {cartTotal >= 300000 && selectedShipping && selectedShipping.insurance_value > 0 && (
+                            <div className="mt-4 p-3 bg-gray-50 rounded-md">
+                                <label className="flex items-center cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={useInsurance}
+                                        onChange={e => setUseInsurance(e.target.checked)}
+                                        className="h-4 w-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
+                                    />
+                                    <span className="ml-3 text-sm font-medium text-gray-700">
+                                        Add Shipping Insurance (+Rp{selectedShipping.insurance_value.toLocaleString('id-ID')})
+                                    </span>
+                                </label>
+                            </div>
+                        )}
                     </div>
                  )}
             </div>
@@ -294,6 +308,12 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
                         <span>Shipping</span>
                         <span>{selectedShipping ? `Rp${selectedShipping.cost.toLocaleString('id-ID')}` : '---'}</span>
                     </div>
+                    {useInsurance && insuranceCost > 0 && (
+                        <div className="flex justify-between text-sm">
+                            <span>Insurance</span>
+                            <span>Rp{insuranceCost.toLocaleString('id-ID')}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between font-bold text-lg border-t mt-2 pt-2">
                         <span>Total</span>
                         <span>Rp{total.toLocaleString('id-ID')}</span>

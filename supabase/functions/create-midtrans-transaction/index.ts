@@ -21,7 +21,7 @@ serve(async (req) => {
   }
 
   try {
-    const { customerDetails, cartItems, shippingOption, subtotal, total } = await req.json();
+    const { customerDetails, cartItems, shippingOption, insuranceDetails, subtotal, total } = await req.json();
 
     // --- 1. Get Secrets & Supabase Admin Client ---
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -81,13 +81,15 @@ serve(async (req) => {
         status: 'pending_payment',
         total_amount: Math.round(total),
         subtotal_amount: Math.round(subtotal),
-        shipping_amount: Math.round(shippingOption.cost), // This is the net cost customer pays
+        shipping_amount: Math.round(shippingOption.cost),
         shipping_provider: shippingOption.code,
         shipping_service: shippingOption.service,
-        // Add the new detailed cost fields from Komerce
-        shipping_cost_original: Math.round(shippingOption.shipping_cost_original),
-        shipping_cashback: Math.round(shippingOption.shipping_cashback),
-        service_fee: Math.round(shippingOption.service_fee),
+        shipping_cost_original: Math.round(shippingOption.shipping_cost_original || 0),
+        shipping_cashback: Math.round(shippingOption.shipping_cashback || 0),
+        service_fee: Math.round(shippingOption.service_fee || 0),
+        // Add the new insurance fields
+        use_insurance: insuranceDetails.useInsurance,
+        insurance_amount: Math.round(insuranceDetails.insuranceAmount || 0),
       })
       .select('id')
       .single();
@@ -120,6 +122,15 @@ serve(async (req) => {
         name: `Shipping: ${shippingOption.name}`,
       },
     ];
+
+    if (insuranceDetails.useInsurance && insuranceDetails.insuranceAmount > 0) {
+      item_details.push({
+        id: 'INSURANCE',
+        price: Math.round(insuranceDetails.insuranceAmount || 0),
+        quantity: 1,
+        name: 'Shipping Insurance',
+      });
+    }
 
     const gross_amount = item_details.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
@@ -154,7 +165,6 @@ serve(async (req) => {
         throw new Error("Midtrans did not return a transaction token.");
     }
     
-    // --- 4. Return Token and Order ID to Client ---
     return new Response(JSON.stringify({ token: midtransJson.token, orderId: orderNumber }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
