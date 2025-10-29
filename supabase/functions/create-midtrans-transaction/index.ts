@@ -84,6 +84,7 @@ serve(async (req) => {
         shipping_amount: Math.round(shippingOption.cost),
         shipping_provider: shippingOption.code,
         shipping_service: shippingOption.service,
+        shipping_vehicle: shippingOption.vehicle_type || null,
         shipping_cost_original: Math.round(shippingOption.shipping_cost_original || 0),
         shipping_cashback: Math.round(shippingOption.shipping_cashback || 0),
         service_fee: Math.round(shippingOption.service_fee || 0),

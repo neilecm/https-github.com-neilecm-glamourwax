@@ -83,6 +83,7 @@ export const rajaOngkirService = {
             service_fee: service.service_fee,
             // Store the pre-calculated insurance value
             insurance_value: service.insurance_value || 0,
+            vehicle_type: service.pickup_vehicle,
         };
     }).filter(option => option.cost > 0); 
 

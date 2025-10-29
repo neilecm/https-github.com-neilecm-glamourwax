@@ -87,6 +87,7 @@ export interface ShippingOption {
     shipping_cashback?: number;
     service_fee?: number;
     insurance_value: number;
+    vehicle_type?: string;
 }
 
 export interface CustomerDetails {
@@ -128,6 +129,7 @@ export interface FullOrder {
     shipping_amount: number;
     shipping_provider: string;
     shipping_service: string;
+    shipping_vehicle: string | null;
     komerce_order_no: string | null;
     awb_number: string | null;
     waybill_url: string | null;

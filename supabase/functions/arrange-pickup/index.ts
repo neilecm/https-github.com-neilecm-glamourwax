@@ -15,52 +15,49 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/pickup/request';
 
-// Helper to get a valid pickup time within Komerce's operational hours (08:00 - 17:00 WITA).
-// This version is more robust and avoids potential issues with `toLocaleString`.
-const getPickupDetails = () => {
+/**
+ * Calculates the pickup date and time, ensuring it is at least 90 minutes
+ * in the future and correctly formatted for the WITA (UTC+8) timezone.
+ */
+const calculatePickupTime = () => {
     const now = new Date();
-    
-    // Get current time in UTC, then add 8 hours for WITA
-    const witaOffset = 8 * 60; // 8 hours in minutes
-    const utcMillis = now.getTime();
-    const witaMillis = utcMillis + (witaOffset * 60 * 1000);
+    // Add 95 minutes (90 min minimum + 5 min buffer) to the current time.
+    const pickupDateTime = new Date(now.getTime() + 95 * 60 * 1000);
 
-    // Create a new Date object representing the time in WITA
-    let pickupDate = new Date(witaMillis);
-    
-    // Add a 100-minute buffer for safety and processing
-    pickupDate.setMinutes(pickupDate.getMinutes() + 100);
+    // Deno's environment is UTC, so we need to manually adjust for UTC+8 (WITA).
+    const witaOffset = 8 * 60 * 60 * 1000;
+    const witaDate = new Date(pickupDateTime.getTime() + witaOffset);
 
-    const pickupHour = pickupDate.getUTCHours(); // Use getUTCHours since we manually adjusted for timezone
-    const openingHour = 8;
-    const closingHour = 17;
+    const year = witaDate.getUTCFullYear();
+    // Corrected line: use getUTCMonth() which is 0-indexed
+    const month = (witaDate.getUTCMonth() + 1).toString().padStart(2, '0');
+    const day = witaDate.getUTCDate().toString().padStart(2, '0');
+    const hours = witaDate.getUTCHours().toString().padStart(2, '0');
+    const minutes = witaDate.getUTCMinutes().toString().padStart(2, '0');
 
-    // If it's after closing time (17:00) or getting too close...
-    if (pickupHour >= closingHour) {
-        // ...schedule for the next day at 9 AM.
-        pickupDate.setUTCDate(pickupDate.getUTCDate() + 1);
-        pickupDate.setUTCHours(9, 0, 0, 0);
-    } 
-    // If it's before opening time (08:00)...
-    else if (pickupHour < openingHour) {
-        // ...schedule for the same day at 9 AM.
-        pickupDate.setUTCHours(9, 0, 0, 0);
-    }
-    // Otherwise, the calculated time is within business hours and can be used as is.
-
-    // Format the date and time strings using UTC methods from the adjusted date object
-    const year = pickupDate.getUTCFullYear();
-    const month = (pickupDate.getUTCMonth() + 1).toString().padStart(2, '0');
-    const day = pickupDate.getUTCDate().toString().padStart(2, '0');
-    const hours = pickupDate.getUTCHours().toString().padStart(2, '0');
-    const minutes = pickupDate.getUTCMinutes().toString().padStart(2, '0');
-    
     return {
         pickup_date: `${year}-${month}-${day}`,
         pickup_time: `${hours}:${minutes}`,
     };
 };
 
+
+/**
+ * Fallback function to determine vehicle type for older orders.
+ */
+const getVehicleType = (totalWeight: number, shippingProvider: string, shippingService: string): 'Motor' | 'Mobil' | 'Truk' => {
+    const upperService = shippingService.toUpperCase();
+    const upperProvider = shippingProvider.toUpperCase();
+
+    // Specific service overrides
+    if (upperService.includes('TRUCKING') || upperService.includes('CARGO')) return 'Truk';
+    if (upperProvider.includes('GOSEND') || upperProvider.includes('GRAB') || upperService.includes('INSTANT') || upperService.includes('SAMEDAY')) return 'Motor';
+
+    // Weight-based fallback
+    if (totalWeight >= 10000) return 'Truk'; // 10 kg
+    if (totalWeight >= 5000) return 'Mobil';   // 5 kg
+    return 'Motor';
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
@@ -75,16 +72,10 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // --- 1. Get order details, including items and weights for vehicle selection ---
+    // --- 1. Get order details, including shipping info ---
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select(`
-        komerce_order_no,
-        order_items (
-            quantity,
-            product_variants ( weight )
-        )
-      `)
+      .select('id, komerce_order_no, shipping_vehicle, shipping_provider, shipping_service')
       .eq('order_number', orderNo)
       .single();
 
@@ -92,25 +83,35 @@ serve(async (req) => {
     if (!order?.komerce_order_no) {
       throw new Error(`Cannot arrange pickup. Order ${orderNo} is missing its Komerce order number.`);
     }
+    
+    let pickupVehicle = order.shipping_vehicle;
 
-    // --- 2. Calculate total weight and determine vehicle type ---
-    const totalWeightGrams = (order.order_items || []).reduce((acc: number, item: any) => {
-        const itemWeight = item.product_variants?.weight || 0;
-        return acc + (itemWeight * item.quantity);
-    }, 0);
-    const totalWeightKg = totalWeightGrams / 1000;
+    // --- 2. Fallback logic for older orders without a saved vehicle ---
+    if (!pickupVehicle) {
+        console.log(`No shipping_vehicle found for order ${orderNo}. Using fallback logic.`);
+        
+        const { data: items, error: itemsError } = await supabaseAdmin
+            .from('order_items')
+            .select('quantity, product_variants(weight)')
+            .eq('order_id', order.id);
+        
+        if (itemsError) throw new Error(`DB Error (Fetch Items for Fallback): ${itemsError.message}`);
+        
+        const totalWeight = items.reduce((acc: number, item: any) => {
+            return acc + (item.product_variants.weight * item.quantity);
+        }, 0);
 
-    let pickup_vehicle = 'Mobil'; // Default to car
-    if (totalWeightKg < 5) pickup_vehicle = 'Motor';
-    if (totalWeightKg >= 10) pickup_vehicle = 'Truk';
+        pickupVehicle = getVehicleType(totalWeight, order.shipping_provider, order.shipping_service);
+        console.log(`Fallback determined vehicle for ${orderNo} is '${pickupVehicle}' based on weight ${totalWeight}g.`);
+    }
     
     // --- 3. Prepare payload for Komerce API ---
-    const { pickup_date, pickup_time } = getPickupDetails();
+    const { pickup_date, pickup_time } = calculatePickupTime();
     
     const komercePayload = {
       pickup_date,
       pickup_time,
-      pickup_vehicle,
+      pickup_vehicle: pickupVehicle,
       orders: [{ order_no: order.komerce_order_no }],
     };
 
@@ -140,9 +141,11 @@ serve(async (req) => {
             .eq('order_number', orderNo);
 
         if (updateError) {
+            // Log the DB error but don't fail the entire function, as the pickup was successful.
             console.error(`DB Error (Update AWB for ${orderNo}): ${updateError.message}`);
         }
     } else {
+        // This handles cases where the API returns a 2xx status but the individual pickup failed.
         throw new Error(`Komerce pickup failed for ${pickupResult?.order_no}: Status was '${pickupResult?.status}'`);
     }
 
