@@ -1,4 +1,3 @@
-
 import { supabase } from './supabase';
 import type { Province, City, District, Subdistrict, ShippingOption } from '../types';
 
@@ -54,17 +53,33 @@ export const rajaOngkirService = {
     return invokeAndNormalize<Subdistrict>('get-subdistricts', 'POST', { districtId });
   },
 
-  // This now correctly uses a District ID, not a Subdistrict ID
-  getShippingCost: (
+  // This now correctly uses a District ID and passes the required itemValue.
+  getShippingCost: async (
     destinationDistrictId: string, 
-    weight: number // in grams
+    weight: number, // in grams
+    itemValue: number // cart total
   ): Promise<ShippingOption[]> => {
-    return invokeAndNormalize<ShippingOption>('get-shipping-cost', 'POST', {
+    // The backend now returns a flat list of all available services (reguler, cargo, etc.)
+    const rawServices = await invokeAndNormalize<any>('get-shipping-cost', 'POST', {
         origin: ORIGIN_DISTRICT_ID, 
         destination: destinationDistrictId, 
         weight: weight,
-        // Query multiple couriers as per the documentation example
-        courier: 'jne:sicepat:jnt:pos:tiki:ninja:lion'
+        itemValue: itemValue, // Pass the cart total to the backend
     });
+
+    // Map the raw API response to the ShippingOption[] format the UI expects.
+    // This is the crucial step to ensure the correct codes are captured.
+    const mappedOptions: ShippingOption[] = rawServices.map(service => {
+        return {
+            code: service.shipping_name, // e.g., "JNE"
+            name: service.shipping_name, // Can be the same for simplicity
+            service: service.service_name, // e.g., "REG23"
+            description: service.service_name, // Use the service code as the description
+            cost: service.shipping_cost_net, // Use the net cost after any discounts
+            etd: service.etd,
+        };
+    }).filter(option => option.cost > 0); // Filter out any invalid options
+
+    return mappedOptions;
   },
 };

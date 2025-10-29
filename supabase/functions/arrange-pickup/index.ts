@@ -15,22 +15,17 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/pickup/request';
 
-// Helper to get a pickup schedule 2 hours from now in WITA (UTC+8) timezone
-function getPickupScheduleWITA() {
-    const now = new Date();
-    // Calculate current time in WITA (UTC+8)
-    const witaOffsetInMs = 8 * 60 * 60 * 1000;
-    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-    const witaNow = new Date(utc + witaOffsetInMs);
+function getPickupSchedule() {
+    // Calculate a time 2 hours from now for the pickup
+    const futureTime = new Date(Date.now() + 2 * 60 * 60 * 1000); 
+    // Convert this time to the local time in Bali (WITA)
+    const witaDate = new Date(futureTime.toLocaleString('en-US', { timeZone: 'Asia/Makassar' }));
 
-    // Add 2 hours for pickup
-    const pickupDateTime = new Date(witaNow.getTime() + 2 * 60 * 60 * 1000);
-
-    const year = pickupDateTime.getFullYear();
-    const month = (pickupDateTime.getMonth() + 1).toString().padStart(2, '0');
-    const day = pickupDateTime.getDate().toString().padStart(2, '0');
-    const hours = pickupDateTime.getHours().toString().padStart(2, '0');
-    const minutes = pickupDateTime.getMinutes().toString().padStart(2, '0');
+    const year = witaDate.getFullYear();
+    const month = (witaDate.getMonth() + 1).toString().padStart(2, '0');
+    const day = witaDate.getDate().toString().padStart(2, '0');
+    const hours = witaDate.getHours().toString().padStart(2, '0');
+    const minutes = witaDate.getMinutes().toString().padStart(2, '0');
     
     return {
         pickup_date: `${year}-${month}-${day}`,
@@ -65,7 +60,7 @@ serve(async (req) => {
     const komerceOrderNo = order.komerce_order_no;
 
     // --- 2. Call Komerce API with the correct order number ---
-    const { pickup_date, pickup_time } = getPickupScheduleWITA();
+    const { pickup_date, pickup_time } = getPickupSchedule();
     const komercePayload = {
       pickup_date,
       pickup_time,

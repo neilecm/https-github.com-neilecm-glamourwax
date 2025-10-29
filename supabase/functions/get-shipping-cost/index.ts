@@ -1,6 +1,5 @@
-
 // supabase/functions/get-shipping-cost/index.ts
-// This function is now correctly aligned with the RajaOngkir V2 API documentation.
+// This function has been completely refactored to align with the correct Komerce API documentation.
 
 declare const Deno: {
   env: { get(key: string): string | undefined; };
@@ -14,7 +13,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const RAJAONGKIR_BASE_URL = 'https://rajaongkir.komerce.id/api/v1';
+const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/tariff/api/v1/calculate';
 
 serve(async (req) => {
   console.log("get-shipping-cost function invoked.");
@@ -25,55 +24,72 @@ serve(async (req) => {
   }
 
   try {
-    const { origin, destination, weight, courier } = await req.json();
-    console.log(`Received cost request: origin=${origin}, destination=${destination}, weight=${weight}, courier=${courier}`);
-    if (!origin || !destination || !weight || !courier) {
-      throw new Error("origin, destination, weight, and courier are required parameters.");
+    const { origin, destination, weight, itemValue } = await req.json();
+    console.log(`Received cost request: origin=${origin}, destination=${destination}, weight=${weight}g, itemValue=${itemValue}`);
+    if (!origin || !destination || !weight || !itemValue) {
+      throw new Error("origin, destination, weight, and itemValue are required parameters.");
     }
 
-    console.log("Retrieving RAJAONGKIR_KEY from secrets...");
-    const RAJAONGKIR_KEY = Deno.env.get('RAJAONGKIR_KEY');
-    if (!RAJAONGKIR_KEY) {
-        console.error("RAJAONGKIR_KEY not set in secrets.");
-        throw new Error("RAJAONGKIR_KEY not set in secrets.");
+    console.log("Retrieving KOMERCE_API_KEY from secrets...");
+    const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
+    if (!KOMERCE_API_KEY) {
+        console.error("KOMERCE_API_KEY not set in secrets.");
+        throw new Error("KOMERCE_API_KEY not set in secrets.");
     }
-    console.log("RAJAONGKIR_KEY retrieved successfully.");
+    console.log("KOMERCE_API_KEY retrieved successfully.");
 
-    // The API expects data in x-www-form-urlencoded format
-    const formBody = new URLSearchParams({
-      origin: origin,
-      destination: destination,
-      weight: weight.toString(),
-      courier: courier,
-      price: "lowest", // as per documentation example
+    // Construct the URL with query parameters for the GET request
+    const params = new URLSearchParams({
+      shipper_destination_id: origin,
+      receiver_destination_id: destination,
+      weight: (weight / 1000).toString(), // Convert grams to kilograms
+      item_value: itemValue.toString(),
+      cod: 'yes', // Get all options, including COD and non-COD
+      // Hardcoded pinpoints as they are required for some couriers (like instant)
+      // In a real app, these might be dynamically determined.
+      origin_pin_point: '-8.6705, 115.2124', // Denpasar, Bali
+      destination_pin_point: '-8.6705, 115.2124', // Placeholder, API is lenient for non-instant
     });
     
-    const endpoint = `${RAJAONGKIR_BASE_URL}/calculate/district/domestic-cost`;
-    console.log(`Fetching from endpoint: ${endpoint} with body: ${formBody.toString()}`);
+    const endpoint = `${KOMERCE_API_URL}?${params.toString()}`;
+    console.log(`Fetching from endpoint: ${endpoint}`);
     
     const res = await fetch(endpoint, {
-      method: 'POST',
+      method: 'GET',
       headers: {
-        'key': RAJAONGKIR_KEY, // lowercase 'k' as per docs for POST
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'x-api-key': KOMERCE_API_KEY,
+        'Accept': 'application/json'
       },
-      body: formBody.toString(),
     });
 
     console.log(`API response status: ${res.status}`);
     const json = await res.json();
 
-    if (!res.ok || json.meta?.code !== 200) {
+    if (!res.ok || json.meta?.status !== 'success') {
       console.error("Komerce API Error:", JSON.stringify(json, null, 2));
       throw new Error(`[Komerce API] ${json.meta?.message || res.statusText}`);
     }
 
-    console.log("Successfully fetched shipping costs. Normalizing response.");
-    // The response is a simple array, so we don't need a complex transform
+    console.log("Successfully fetched shipping costs. Normalizing response for frontend.");
+    
+    // Correctly parse and flatten the Komerce response
+    const allServices: any[] = [];
+    if (json.data) {
+        if (Array.isArray(json.data.calculate_reguler)) {
+            allServices.push(...json.data.calculate_reguler);
+        }
+        if (Array.isArray(json.data.calculate_cargo)) {
+            allServices.push(...json.data.calculate_cargo);
+        }
+        if (Array.isArray(json.data.calculate_instant)) {
+            allServices.push(...json.data.calculate_instant);
+        }
+    }
+
     const responseBody = {
-      rajaongkir: {
+      rajaongkir: { // Keep this wrapper for consistency with other location functions
         status: json.meta,
-        results: json.data || [],
+        results: allServices, // Return the flattened array
       },
     };
 

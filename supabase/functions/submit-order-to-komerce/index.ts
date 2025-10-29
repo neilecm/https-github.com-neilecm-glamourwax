@@ -15,41 +15,35 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/store';
 
-// Helper to get the current date and time in WITA (UTC+8)
-function getCurrentDateTimeInWITA() {
-  const now = new Date();
-  // WITA is UTC+8. getTimezoneOffset returns the difference in minutes between UTC and local time.
-  const witaOffsetInMs = 8 * 60 * 60 * 1000;
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const witaTime = new Date(utc + witaOffsetInMs);
-
-  const year = witaTime.getFullYear();
-  const month = (witaTime.getMonth() + 1).toString().padStart(2, '0');
-  const day = witaTime.getDate().toString().padStart(2, '0');
-  const hours = witaTime.getHours().toString().padStart(2, '0');
-  const minutes = witaTime.getMinutes().toString().padStart(2, '0');
-  
-  return {
-    date: `${year}-${month}-${day}`,
-    time: `${hours}:${minutes}`,
-  };
-}
-
 // Helper to format phone numbers to meet Komerce API requirements (must not start with '0' or '+')
 const sanitizePhoneNumber = (phone: string | null): string => {
   if (!phone) return '';
   let digits = phone.replace(/\D/g, ''); // Remove all non-numeric characters
   if (digits.startsWith('0')) {
-    // Replace leading '0' with '62' if it's an Indonesian number
     return `62${digits.substring(1)}`;
   }
   if (digits.startsWith('62')) {
       return digits;
   }
-  // If it doesn't start with 0, assume it's a valid format like '812...'
   return digits;
 };
 
+// Helper to get the current date and time in the WITA timezone (UTC+8)
+const getCurrentWitaDateTime = () => {
+    const now = new Date();
+    const witaDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Makassar' }));
+
+    const year = witaDate.getFullYear();
+    const month = (witaDate.getMonth() + 1).toString().padStart(2, '0');
+    const day = witaDate.getDate().toString().padStart(2, '0');
+    const hours = witaDate.getHours().toString().padStart(2, '0');
+    const minutes = witaDate.getMinutes().toString().padStart(2, '0');
+
+    return {
+        order_date: `${year}-${month}-${day}`,
+        order_time: `${hours}:${minutes}`,
+    };
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
@@ -66,7 +60,7 @@ serve(async (req) => {
     const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
     if (!KOMERCE_API_KEY) { throw new Error("KOMERCE_API_KEY is not set in secrets."); }
 
-    // --- Definitive Fix: Fetch data in robust, separate steps ---
+    // --- Fetch data in robust, separate steps ---
 
     // 1. Fetch the Order and its associated Customer
     console.log(`[komerce] Step 1: Fetching order and customer for orderId: ${orderId}`);
@@ -123,11 +117,11 @@ serve(async (req) => {
         subtotal: item.price * item.quantity,
     }));
     
-    const { date: orderDate, time: orderTime } = getCurrentDateTimeInWITA();
+    const { order_date, order_time } = getCurrentWitaDateTime();
 
     const komercePayload = {
-      order_date: orderDate,
-      order_time: orderTime,
+      order_date: order_date,
+      order_time: order_time,
       brand_name: shipperDetails.brand_name,
       shipper_name: shipperDetails.name,
       shipper_phone: shipperDetails.phone,
@@ -136,10 +130,10 @@ serve(async (req) => {
       shipper_email: shipperDetails.email,
       receiver_name: `${order.customers.first_name} ${order.customers.last_name}`,
       receiver_phone: sanitizePhoneNumber(order.customers.phone),
-      receiver_destination_id: parseInt(address.district_id, 10),
+      receiver_destination_id: address.district_id,
       receiver_address: address.street,
-      shipping: order.shipping_provider.toLowerCase(),
-      shipping_type: order.shipping_service,
+      shipping: order.shipping_provider, // Now correct, e.g., "JNE"
+      shipping_type: order.shipping_service, // Now correct, e.g., "REG23"
       payment_method: "BANK TRANSFER",
       shipping_cost: order.shipping_amount,
       shipping_cashback: 0,

@@ -113,7 +113,7 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
     setIsLoading(prev => ({ ...prev, shipping: true }));
     setError(null);
     try {
-      const data = await rajaOngkirService.getShippingCost(districtId, totalWeight);
+      const data = await rajaOngkirService.getShippingCost(districtId, totalWeight, cartTotal);
       setShippingOptions(data);
       if (data.length === 0) {
           setError("No shipping options available for this destination.");

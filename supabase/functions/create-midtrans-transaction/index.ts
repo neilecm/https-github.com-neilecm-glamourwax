@@ -56,8 +56,6 @@ serve(async (req) => {
       .insert({
         customer_id: customerData.id,
         street: customerDetails.address,
-        // FIX: Ensure location IDs are parsed as integers, as the DB likely expects them to be numbers.
-        // The API returns them as strings, causing a type mismatch error.
         province_id: parseInt(customerDetails.province.id, 10),
         province_name: customerDetails.province.name,
         city_id: parseInt(customerDetails.city.id, 10),
@@ -84,8 +82,8 @@ serve(async (req) => {
         total_amount: Math.round(total),
         subtotal_amount: Math.round(subtotal),
         shipping_amount: Math.round(shippingOption.cost),
-        shipping_provider: shippingOption.code.toUpperCase(),
-        shipping_service: shippingOption.service,
+        shipping_provider: shippingOption.code, // e.g., "JNE"
+        shipping_service: shippingOption.service, // e.g., "REG23"
       })
       .select('id')
       .single();
