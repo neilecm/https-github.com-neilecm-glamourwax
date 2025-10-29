@@ -67,18 +67,22 @@ export const rajaOngkirService = {
         itemValue: itemValue, // Pass the cart total to the backend
     });
 
-    // Map the raw API response to the ShippingOption[] format the UI expects.
-    // This is the crucial step to ensure the correct codes are captured.
+    // Map the raw API response to the ShippingOption[] format the UI expects,
+    // now including the full cost breakdown for accurate order creation.
     const mappedOptions: ShippingOption[] = rawServices.map(service => {
         return {
-            code: service.shipping_name, // e.g., "JNE"
-            name: service.shipping_name, // Can be the same for simplicity
-            service: service.service_name, // e.g., "REG23"
-            description: service.service_name, // Use the service code as the description
-            cost: service.shipping_cost_net, // Use the net cost after any discounts
+            code: service.shipping_name,
+            name: service.shipping_name,
+            service: service.service_name,
+            description: service.service_name,
+            cost: service.shipping_cost_net,
             etd: service.etd,
+            // Store the full breakdown to be passed to the order creation function
+            shipping_cost_original: service.shipping_cost,
+            shipping_cashback: service.shipping_cashback,
+            service_fee: service.service_fee,
         };
-    }).filter(option => option.cost > 0); // Filter out any invalid options
+    }).filter(option => option.cost > 0); 
 
     return mappedOptions;
   },

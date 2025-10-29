@@ -81,9 +81,13 @@ serve(async (req) => {
         status: 'pending_payment',
         total_amount: Math.round(total),
         subtotal_amount: Math.round(subtotal),
-        shipping_amount: Math.round(shippingOption.cost),
-        shipping_provider: shippingOption.code, // e.g., "JNE"
-        shipping_service: shippingOption.service, // e.g., "REG23"
+        shipping_amount: Math.round(shippingOption.cost), // This is the net cost customer pays
+        shipping_provider: shippingOption.code,
+        shipping_service: shippingOption.service,
+        // Add the new detailed cost fields from Komerce
+        shipping_cost_original: Math.round(shippingOption.shipping_cost_original),
+        shipping_cashback: Math.round(shippingOption.shipping_cashback),
+        service_fee: Math.round(shippingOption.service_fee),
       })
       .select('id')
       .single();

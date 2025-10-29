@@ -62,9 +62,15 @@ export interface ShippingOption {
   name: string;
   service: string;
   description: string;
-  cost: number;
+  cost: number; // This is the net cost for the customer
   etd: string; // Estimated time of delivery
+
+  // New fields to store the full cost breakdown from Komerce
+  shipping_cost_original: number;
+  shipping_cashback: number;
+  service_fee: number;
 }
+
 
 export interface CustomerDetails {
   firstName: string;

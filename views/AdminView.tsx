@@ -24,11 +24,12 @@ const Tab: React.FC<{ title: string; isActive: boolean; onClick: () => void }> =
 
 // Order Row Component
 const OrderRow: React.FC<{ order: FullOrder; onRefresh: () => void; }> = ({ order, onRefresh }) => {
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const handleAction = async (action: () => Promise<any>, successMessage: string) => {
-        setIsSubmitting(true);
+        if (isProcessing) return;
+        setIsProcessing(true);
         setError(null);
         try {
             await action();
@@ -37,12 +38,20 @@ const OrderRow: React.FC<{ order: FullOrder; onRefresh: () => void; }> = ({ orde
         } catch (err: any) {
             setError(err.message);
         } finally {
-            setIsSubmitting(false);
+            setIsProcessing(false);
         }
     };
 
+    const handleVerifyPayment = (orderNumber: string) => {
+        handleAction(
+            () => supabaseService.checkOrderStatus(orderNumber),
+            `Verification sent for order ${orderNumber}. Status will update upon refresh.`
+        );
+    };
+
     const handlePrintWaybill = async (orderNo: string) => {
-        setIsSubmitting(true);
+        if (isProcessing) return;
+        setIsProcessing(true);
         setError(null);
         try {
             const { base_64 } = await komerceService.printWaybill(orderNo);
@@ -58,7 +67,7 @@ const OrderRow: React.FC<{ order: FullOrder; onRefresh: () => void; }> = ({ orde
         } catch(err: any) {
             setError(err.message);
         } finally {
-            setIsSubmitting(false);
+            setIsProcessing(false);
         }
     }
 
@@ -81,16 +90,21 @@ const OrderRow: React.FC<{ order: FullOrder; onRefresh: () => void; }> = ({ orde
             <td className="p-3">Rp{order.total_amount.toLocaleString('id-ID')}</td>
             <td className="p-3">{getStatusChip(order.status)}</td>
             <td className="p-3 space-x-1">
+                {order.status === 'pending_payment' && (
+                     <button onClick={() => handleVerifyPayment(order.order_number)} disabled={isProcessing} className="text-xs bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600 disabled:bg-yellow-300">
+                        {isProcessing ? '...' : 'Verify'}
+                    </button>
+                )}
                 {order.status === 'paid' && !order.komerce_order_no && (
-                    <button onClick={() => handleAction(() => komerceService.submitOrderToShipping(order.id), 'Order submitted to shipping partner!')} disabled={isSubmitting} className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-blue-300">Submit</button>
+                    <button onClick={() => handleAction(() => komerceService.submitOrderToShipping(order.id), 'Order submitted to shipping partner!')} disabled={isProcessing} className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-blue-300">Submit</button>
                 )}
                 {order.status === 'paid' && order.komerce_order_no && !order.awb_number && (
-                     <button onClick={() => handleAction(() => komerceService.arrangePickup(order.order_number), 'Pickup arranged successfully!')} disabled={isSubmitting} className="text-xs bg-purple-500 text-white px-2 py-1 rounded hover:bg-purple-600 disabled:bg-purple-300">Arrange Pickup</button>
+                     <button onClick={() => handleAction(() => komerceService.arrangePickup(order.order_number), 'Pickup arranged successfully!')} disabled={isProcessing} className="text-xs bg-purple-500 text-white px-2 py-1 rounded hover:bg-purple-600 disabled:bg-purple-300">Arrange Pickup</button>
                 )}
                 {order.status === 'shipped' && order.awb_number && (
-                    <button onClick={() => handlePrintWaybill(order.order_number)} disabled={isSubmitting} className="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 disabled:bg-gray-300">Print Label</button>
+                    <button onClick={() => handlePrintWaybill(order.order_number)} disabled={isProcessing} className="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 disabled:bg-gray-300">Print Label</button>
                 )}
-                 {isSubmitting && <Spinner />}
+                 {isProcessing && <Spinner />}
                  {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
             </td>
         </tr>
