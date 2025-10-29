@@ -67,20 +67,19 @@ serve(async (req) => {
         throw new Error("No valid Komerce order numbers found for the provided orders.");
     }
     
-    // --- Call Komerce API with parameters in the body ---
-    const komercePayload = {
-      page: 'page_5', // Thermal 10x10
-      order_no: komerceOrderNos.join(','),
-    };
+    // --- Call Komerce API with parameters as form-urlencoded ---
+    const formData = new URLSearchParams();
+    formData.append('page', 'page_5');
+    formData.append('order_no', komerceOrderNos.join(','));
 
     const komerceResponse = await fetch(KOMERCE_API_URL, {
         method: 'POST',
         headers: { 
             'x-api-key': KOMERCE_API_KEY,
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
         },
-        body: JSON.stringify(komercePayload)
+        body: formData.toString()
     });
 
     const komerceJson = await komerceResponse.json();

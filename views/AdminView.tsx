@@ -67,6 +67,20 @@ const ShippingDetailModal: React.FC<{ details: KomerceOrderDetail | null; onClos
     );
 };
 
+const getStatusBadgeClass = (status: FullOrder['status']) => {
+    switch (status) {
+        case 'paid': return 'bg-green-100 text-green-800';
+        case 'label_created': return 'bg-purple-100 text-purple-800';
+        case 'shipped': return 'bg-blue-100 text-blue-800';
+        case 'pending_payment': return 'bg-yellow-100 text-yellow-800';
+        case 'failed':
+        case 'cancelled':
+            return 'bg-red-100 text-red-800';
+        default:
+            return 'bg-gray-100 text-gray-800';
+    }
+};
+
 
 const OrdersManager: React.FC = () => {
     const [orders, setOrders] = useState<FullOrder[]>([]);
@@ -142,6 +156,12 @@ const OrdersManager: React.FC = () => {
         });
     };
 
+    const handleCancelOrder = (order: FullOrder) => {
+        if (window.confirm(`Are you sure you want to cancel order ${order.order_number}? This action cannot be undone.`)) {
+            handleAction(`cancel-${order.order_number}`, () => komerceService.cancelOrder(order.order_number));
+        }
+    };
+
     const handleShowDetails = async (order: FullOrder) => {
         if (!order.komerce_order_no) {
             setError("This order has not been submitted to the shipping partner yet.");
@@ -215,14 +235,7 @@ const OrdersManager: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Rp{order.total_amount.toLocaleString('id-ID')}</td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                        order.status === 'paid' ? 'bg-green-100 text-green-800' :
-                                        order.status === 'label_created' ? 'bg-purple-100 text-purple-800' :
-                                        order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
-                                        order.status === 'pending_payment' ? 'bg-yellow-100 text-yellow-800' :
-                                        order.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                        'bg-gray-100 text-gray-800'
-                                    }`}>
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(order.status)}`}>
                                         {order.status.replace('_', ' ')}
                                     </span>
                                 </td>
@@ -233,14 +246,24 @@ const OrdersManager: React.FC = () => {
                                         </button>
                                     )}
                                     {order.status === 'paid' && (
-                                        <button onClick={() => handleSubmitToKomerce(order)} disabled={actionLoading[`submit-${order.id}`]} className="bg-blue-500 text-white px-2 py-1 rounded disabled:bg-blue-300">
-                                            {actionLoading[`submit-${order.id}`] ? 'Submitting...' : 'Submit to Komerce'}
-                                        </button>
+                                        <>
+                                            <button onClick={() => handleSubmitToKomerce(order)} disabled={actionLoading[`submit-${order.id}`]} className="bg-blue-500 text-white px-2 py-1 rounded disabled:bg-blue-300">
+                                                {actionLoading[`submit-${order.id}`] ? 'Submitting...' : 'Submit to Komerce'}
+                                            </button>
+                                            <button onClick={() => handleCancelOrder(order)} disabled={actionLoading[`cancel-${order.order_number}`]} className="bg-red-500 text-white px-2 py-1 rounded disabled:bg-red-300">
+                                                {actionLoading[`cancel-${order.order_number}`] ? 'Cancelling...' : 'Cancel'}
+                                            </button>
+                                        </>
                                     )}
                                     {order.status === 'processing' && (
-                                         <button onClick={() => handleArrangePickup(order)} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
-                                            {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
-                                        </button>
+                                        <>
+                                            <button onClick={() => handleArrangePickup(order)} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
+                                                {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
+                                            </button>
+                                            <button onClick={() => handleCancelOrder(order)} disabled={actionLoading[`cancel-${order.order_number}`]} className="bg-red-500 text-white px-2 py-1 rounded disabled:bg-red-300">
+                                                {actionLoading[`cancel-${order.order_number}`] ? 'Cancelling...' : 'Cancel'}
+                                            </button>
+                                        </>
                                     )}
                                      {(order.status === 'label_created' || order.status === 'shipped') && (
                                         <button onClick={() => handlePrintWaybill(order)} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded disabled:bg-gray-300">

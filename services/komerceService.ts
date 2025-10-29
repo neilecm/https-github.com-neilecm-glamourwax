@@ -53,4 +53,13 @@ export const komerceService = {
   async getKomerceOrderDetails(orderNo: string): Promise<KomerceOrderDetail> {
     return invokeFunction('get-komerce-order-details', { orderNo });
   },
+  
+  /**
+   * Cancels an order.
+   * If the order exists in Komerce, it will be cancelled there first.
+   * The order status in our DB will be set to 'cancelled'.
+   */
+  async cancelOrder(orderNo: string): Promise<any> {
+    return invokeFunction('cancel-order', { orderNo });
+  },
 };
