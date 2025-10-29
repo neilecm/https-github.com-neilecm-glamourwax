@@ -1,65 +1,56 @@
 // services/komerceService.ts
+import { supabase } from './supabase';
+import type { KomerceOrderDetail } from '../types';
 
-import { supabase, supabaseUrl } from './supabase';
-
-// A helper to invoke functions using a direct fetch call for robustness.
-const invokeFunction = async <T = any>(
-  functionName: string,
-  options: { method?: 'GET' | 'POST'; body?: object } = {}
-): Promise<T> => {
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !session?.access_token) {
-    throw new Error('User not authenticated.');
-  }
-  
-  const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
-
-  const response = await fetch(functionUrl, {
-    method: options.method || 'POST',
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(errorData.error || `Edge function '${functionName}' returned a non-2xx status code.`);
-  }
-
-  return response.json();
+const invokeFunction = async <T = any>(functionName: string, body?: object): Promise<T> => {
+    const { data, error } = await supabase.functions.invoke(functionName, { body });
+    if (error) {
+        const errorMessage = error.context?.error_cause?.error || `Function '${functionName}' failed: ${error.message}`;
+        throw new Error(errorMessage);
+    }
+    return data;
 };
-
 
 export const komerceService = {
   /**
-   * Submits a paid order to the Komerce shipping partner.
-   * @param orderId The internal UUID of the order.
+   * Submits a confirmed order to the Komerce system to get a Komerce order number.
+   * This changes the order status to 'processing'.
    */
-  async submitOrderToShipping(orderId: string): Promise<{ success: boolean; komerceOrderNo: string }> {
-    return await invokeFunction('submit-order-to-komerce', {
-      body: { orderId },
-    });
+  async submitOrderToKomerce(orderId: number): Promise<{ komerceOrderNo: string }> {
+    return invokeFunction('submit-order-to-komerce', { orderId });
   },
 
   /**
-   * Arranges a pickup for an order that has been submitted to Komerce.
-   * @param orderNo The internal order number (e.g., "CB-12345").
+   * Requests a pickup for an order that has been submitted to Komerce.
+   * This changes the order status to 'shipped' and adds an AWB number.
    */
   async arrangePickup(orderNo: string): Promise<any> {
-    return await invokeFunction('arrange-pickup', {
-      body: { orderNo },
-    });
+    return invokeFunction('arrange-pickup', { orderNo });
   },
 
   /**
-   * Gets the base64-encoded PDF for one or more shipping labels.
-   * @param orderNos An array of internal order numbers (e.g., ["CB-12345"]).
+   * Fetches the waybill (shipping label) for an order from Komerce.
+   * Now accepts an array of order numbers for bulk printing.
+   * The function returns the raw PDF blob.
    */
-  async printWaybill(orderNos: string[]): Promise<{ base_64: string }> {
-    return await invokeFunction('print-waybill', {
-      body: { orderNos },
-    });
+  async printWaybill(orderNos: string[]): Promise<Blob> {
+      const { data, error } = await supabase.functions.invoke('print-waybill', {
+        body: { orderNos },
+        responseType: 'blob'
+      });
+
+      if (error) {
+          const errorMessage = error.context?.error_cause?.error || `Failed to invoke 'print-waybill': ${error.message}`;
+          throw new Error(errorMessage);
+      }
+      
+      return data;
+  },
+
+  /**
+   * Fetches the latest details of an order from the Komerce system using the internal order number.
+   */
+  async getKomerceOrderDetails(orderNo: string): Promise<KomerceOrderDetail> {
+    return invokeFunction('get-komerce-order-details', { orderNo });
   },
 };

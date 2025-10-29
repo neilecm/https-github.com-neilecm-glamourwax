@@ -1,11 +1,12 @@
 // supabase/functions/print-waybill/index.ts
-
 declare const Deno: {
   env: { get(key: string): string | undefined; };
 };
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { decode } from "https://deno.land/std@0.203.0/encoding/base64.ts";
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,53 +20,101 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
 
   try {
-    const { orderNos } = await req.json(); // Expecting an array, e.g., ["CB-123", "CB-456"]
-    if (!orderNos || !Array.isArray(orderNos) || orderNos.length === 0) {
-      throw new Error("orderNos (an array of strings) is a required parameter.");
+    const { orderNos } = await req.json(); // Array of internal order numbers "CB-..."
+    if (!orderNos || !Array.isArray(orderNos) || orderNos.length === 0) { 
+      throw new Error("orderNos (array) is a required parameter."); 
     }
-    
+
     const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
+    if (!KOMERCE_API_KEY) throw new Error("KOMERCE_API_KEY secret not set.");
+
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // --- 1. Get the official Komerce order numbers from our database ---
-    const { data: orders, error: fetchError } = await supabaseAdmin
-      .from('orders')
-      .select('komerce_order_no')
-      .in('order_number', orderNos);
+    // If only one order, check for cached waybill first
+    if (orderNos.length === 1) {
+        const { data: order, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('waybill_url')
+            .eq('order_number', orderNos[0])
+            .single();
+        
+        if (fetchError) throw new Error(`DB Error (Fetch Order): ${fetchError.message}`);
 
-    if (fetchError) throw new Error(`DB Error (Fetch Orders): ${fetchError.message}`);
+        if (order && order.waybill_url) {
+            const response = await fetch(order.waybill_url);
+            if (!response.ok) throw new Error("Failed to fetch cached waybill from storage.");
+            const pdfBlob = await response.blob();
+            return new Response(pdfBlob, {
+                headers: { ...corsHeaders, 'Content-Type': 'application/pdf' },
+                status: 200,
+            });
+        }
+    }
+
+    // --- Fetch Komerce order numbers for all requested internal numbers ---
+    const { data: orders, error: fetchAllError } = await supabaseAdmin
+        .from('orders')
+        .select('order_number, komerce_order_no')
+        .in('order_number', orderNos);
+
+    if (fetchAllError) throw new Error(`DB Error (Fetch Komerce Nos): ${fetchAllError.message}`);
 
     const komerceOrderNos = orders?.map(o => o.komerce_order_no).filter(Boolean);
     if (!komerceOrderNos || komerceOrderNos.length === 0) {
-      throw new Error(`Cannot print waybill. No valid Komerce order numbers found for the provided orders.`);
+        throw new Error("No valid Komerce order numbers found for the provided orders.");
     }
     
-    // --- 2. Call Komerce API with a comma-separated list of order numbers ---
-    const url = new URL(KOMERCE_API_URL);
-    url.searchParams.append('page', 'page_5'); // Thermal printer size
-    url.searchParams.append('order_no', komerceOrderNos.join(','));
-    
-    const komerceResponse = await fetch(url.toString(), {
-      method: 'POST',
-      headers: { 'x-api-key': KOMERCE_API_KEY, 'Accept': 'application/json' },
+    // --- Call Komerce API ---
+    const params = new URLSearchParams({
+        page: 'page_5', // Thermal 10x10
+        order_no: komerceOrderNos.join(','),
     });
-    
+    const endpoint = `${KOMERCE_API_URL}?${params.toString()}`;
+
+    const komerceResponse = await fetch(endpoint, {
+        method: 'POST', // Correct method is POST
+        headers: { 'x-api-key': KOMERCE_API_KEY },
+    });
+
     const komerceJson = await komerceResponse.json();
     if (!komerceResponse.ok || komerceJson.meta?.status !== 'success') {
-      const errorMessage = typeof komerceJson.data === 'string' ? komerceJson.data : komerceJson.meta?.message;
-      throw new Error(`[Komerce API] ${errorMessage || 'Failed to generate label.'}`);
+      throw new Error(`[Komerce API] ${komerceJson.meta?.message || 'Failed to generate label.'}`);
     }
     
-    if (!komerceJson.data?.base_64) {
-        throw new Error("[Komerce API] Response did not contain base_64 PDF data.");
+    const base64Pdf = komerceJson.data?.base_64;
+    if (!base64Pdf) throw new Error("Komerce API did not return waybill data.");
+
+    const pdfData = decode(base64Pdf);
+    
+    // --- If it's a single waybill, save it to storage and update the DB ---
+    if (orderNos.length === 1 && orders?.[0]) {
+        const order = orders[0];
+        const filePath = `${order.komerce_order_no}-${Date.now()}.pdf`;
+        
+        const { error: uploadError } = await supabaseAdmin.storage
+            .from('waybills')
+            .upload(filePath, pdfData, { contentType: 'application/pdf' });
+        
+        if (uploadError) {
+            console.error("Storage Error:", uploadError.message);
+        } else {
+            const { data: { publicUrl } } = supabaseAdmin.storage.from('waybills').getPublicUrl(filePath);
+            if (publicUrl) {
+                const { error: dbUpdateError } = await supabaseAdmin
+                    .from('orders')
+                    .update({ waybill_url: publicUrl })
+                    .eq('order_number', order.order_number);
+                if (dbUpdateError) console.error("DB Update Error:", dbUpdateError.message);
+            }
+        }
     }
 
-    return new Response(JSON.stringify({ base_64: komerceJson.data.base_64 }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    return new Response(pdfData, {
+        headers: { ...corsHeaders, 'Content-Type': 'application/pdf' },
+        status: 200,
     });
 
   } catch (err) {
