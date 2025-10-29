@@ -107,7 +107,7 @@ serve(async (req) => {
     if (pickupResult && pickupResult.status === 'success' && pickupResult.awb) {
         const { error: updateError } = await supabaseAdmin
             .from('orders')
-            .update({ awb_number: pickupResult.awb, status: 'shipped' })
+            .update({ awb_number: pickupResult.awb, status: 'label_created' })
             .eq('order_number', orderNo);
 
         if (updateError) {

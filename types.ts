@@ -122,7 +122,7 @@ export interface FullOrder {
     order_number: string;
     customer_id: string;
     shipping_address_id: number;
-    status: 'pending_payment' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
+    status: 'pending_payment' | 'paid' | 'processing' | 'label_created' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
     total_amount: number;
     subtotal_amount: number;
     shipping_amount: number;

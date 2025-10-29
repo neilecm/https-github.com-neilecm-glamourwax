@@ -217,6 +217,7 @@ const OrdersManager: React.FC = () => {
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                                         order.status === 'paid' ? 'bg-green-100 text-green-800' :
+                                        order.status === 'label_created' ? 'bg-purple-100 text-purple-800' :
                                         order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
                                         order.status === 'pending_payment' ? 'bg-yellow-100 text-yellow-800' :
                                         order.status === 'failed' ? 'bg-red-100 text-red-800' :
@@ -241,7 +242,7 @@ const OrdersManager: React.FC = () => {
                                             {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
                                         </button>
                                     )}
-                                     {(order.status === 'shipped' || (order.status === 'processing' && order.awb_number)) && (
+                                     {(order.status === 'label_created' || order.status === 'shipped') && (
                                         <button onClick={() => handlePrintWaybill(order)} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded disabled:bg-gray-300">
                                             {actionLoading[`waybill-${order.order_number}`] ? 'Printing...' : 'Print Label'}
                                         </button>

@@ -127,9 +127,9 @@ serve(async (req) => {
 
     const { error: updateError } = await supabaseAdmin
       .from('orders')
-      .update({ komerce_order_no: komerceOrderNo })
+      .update({ komerce_order_no: komerceOrderNo, status: 'processing' })
       .eq('id', orderId);
-    if (updateError) { throw new Error(`DB Error (Update Komerce No): ${updateError.message}`); }
+    if (updateError) { throw new Error(`DB Error (Update Komerce No and Status): ${updateError.message}`); }
 
     return new Response(JSON.stringify({ success: true, komerceOrderNo }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
