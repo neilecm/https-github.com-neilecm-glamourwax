@@ -15,16 +15,45 @@ const corsHeaders = {
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/pickup/request';
 
-// Helper to get a pickup time at least 90 minutes in the future, formatted for WITA timezone.
+// Helper to get a valid pickup time within Komerce's operational hours (08:00 - 17:00 WITA).
+// This version is more robust and avoids potential issues with `toLocaleString`.
 const getPickupDetails = () => {
-    const pickupDateTime = new Date(Date.now() + 95 * 60 * 1000); // 95 minutes for a safe buffer
-    const witaDate = new Date(pickupDateTime.toLocaleString('en-US', { timeZone: 'Asia/Makassar' }));
+    const now = new Date();
     
-    const year = witaDate.getFullYear();
-    const month = (witaDate.getMonth() + 1).toString().padStart(2, '0');
-    const day = witaDate.getDate().toString().padStart(2, '0');
-    const hours = witaDate.getHours().toString().padStart(2, '0');
-    const minutes = witaDate.getMinutes().toString().padStart(2, '0');
+    // Get current time in UTC, then add 8 hours for WITA
+    const witaOffset = 8 * 60; // 8 hours in minutes
+    const utcMillis = now.getTime();
+    const witaMillis = utcMillis + (witaOffset * 60 * 1000);
+
+    // Create a new Date object representing the time in WITA
+    let pickupDate = new Date(witaMillis);
+    
+    // Add a 100-minute buffer for safety and processing
+    pickupDate.setMinutes(pickupDate.getMinutes() + 100);
+
+    const pickupHour = pickupDate.getUTCHours(); // Use getUTCHours since we manually adjusted for timezone
+    const openingHour = 8;
+    const closingHour = 17;
+
+    // If it's after closing time (17:00) or getting too close...
+    if (pickupHour >= closingHour) {
+        // ...schedule for the next day at 9 AM.
+        pickupDate.setUTCDate(pickupDate.getUTCDate() + 1);
+        pickupDate.setUTCHours(9, 0, 0, 0);
+    } 
+    // If it's before opening time (08:00)...
+    else if (pickupHour < openingHour) {
+        // ...schedule for the same day at 9 AM.
+        pickupDate.setUTCHours(9, 0, 0, 0);
+    }
+    // Otherwise, the calculated time is within business hours and can be used as is.
+
+    // Format the date and time strings using UTC methods from the adjusted date object
+    const year = pickupDate.getUTCFullYear();
+    const month = (pickupDate.getUTCMonth() + 1).toString().padStart(2, '0');
+    const day = pickupDate.getUTCDate().toString().padStart(2, '0');
+    const hours = pickupDate.getUTCHours().toString().padStart(2, '0');
+    const minutes = pickupDate.getUTCMinutes().toString().padStart(2, '0');
     
     return {
         pickup_date: `${year}-${month}-${day}`,
