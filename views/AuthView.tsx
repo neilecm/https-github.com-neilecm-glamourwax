@@ -8,7 +8,8 @@ interface AuthViewProps {
 }
 
 const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
-  const { authEvent } = useAuth();
+  // Add user and isAnonymous to monitor auth state changes.
+  const { authEvent, user, isAnonymous } = useAuth();
   const [mode, setMode] = useState<'signIn' | 'signUp' | 'forgotPassword' | 'updatePassword'>('signIn');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +21,14 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
     phone: '',
     password: '',
   });
+
+  // This effect will trigger navigation ONLY when the auth state is confirmed.
+  useEffect(() => {
+    // If we have a user and they are NOT anonymous, it means login/signup was successful.
+    if (user && !isAnonymous) {
+      onLoginSuccess();
+    }
+  }, [user, isAnonymous, onLoginSuccess]);
 
   useEffect(() => {
     if (authEvent === 'PASSWORD_RECOVERY') {
@@ -51,37 +60,24 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
         },
       });
 
-      // Handle the specific, persistent "Error sending confirmation mail"
       if (error && error.message?.toLowerCase().includes('error sending confirmation mail')) {
-        console.warn("Supabase returned an email error despite confirmation being disabled. Attempting to sign in directly.");
-        
-        // This error means the user was created, but the email failed.
-        // Since confirmation is disabled in the dashboard, we can treat this as a success
-        // and proceed to sign the user in to get a session.
+        console.warn("Supabase email error. Attempting to sign in directly.");
         const { error: signInError } = await supabase.auth.signInWithPassword({
             email: formState.email,
             password: formState.password,
         });
-
         if (signInError) {
-            // If the subsequent sign-in fails, it's a real issue.
             setError(`Your account was created, but we couldn't log you in automatically. Please try signing in manually. Error: ${signInError.message}`);
-        } else {
-            // Success!
-            onLoginSuccess();
         }
+        // On success, the useEffect will handle navigation.
       } else if (error) {
-        // Handle any other signup errors normally.
         throw error;
       } else if (data.session) {
-        // This is the expected success path when email confirmation is OFF.
-        onLoginSuccess();
+        // Session created, the useEffect will handle navigation.
       } else if (data.user && !data.session) {
-        // This is the expected success path when email confirmation is ON.
         setMessage('Success! Please check your email to confirm your account.');
         setFormState({ fullName: '', email: '', phone: '', password: '' });
       } else {
-        // Fallback for any unexpected successful response structure.
         throw new Error("An unexpected response was received from the server.");
       }
     } catch (err: any) {
@@ -102,7 +98,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
         password: formState.password,
       });
       if (error) throw error;
-      onLoginSuccess();
+      // On success, the useEffect will handle navigation.
     } catch (err: any) {
       if (err.message?.includes('Email not confirmed')) {
         setError('Your email is not confirmed yet. Please check your inbox for the confirmation link.');
@@ -159,6 +155,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
       setError(error.message);
       setLoading(false);
     }
+    // For OAuth, Supabase handles the redirect, so our useEffect will catch the state change on return.
   };
 
   const renderContent = () => {

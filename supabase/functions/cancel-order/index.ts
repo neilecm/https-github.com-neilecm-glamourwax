@@ -1,5 +1,4 @@
-// supabase/functions/cancel-order/index.ts
-
+// FIX: Add Deno type declaration for environment variables.
 declare const Deno: {
   env: { get(key: string): string | undefined; };
 };
@@ -12,6 +11,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const KOMERCE_CANCEL_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/cancel';
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -41,32 +42,31 @@ serve(async (req) => {
     if (fetchError) throw new Error(`DB Error (Fetch): ${fetchError.message}`);
     if (!order) throw new Error(`Order ${orderNo} not found.`);
 
-    // 2. Check if order can be cancelled
+    // 2. Check if order can be cancelled (Komerce allows 'paid' and 'processing')
     if (order.status !== 'paid' && order.status !== 'processing') {
       throw new Error(`Cannot cancel order. Status is '${order.status}'.`);
     }
 
     // 3. If it has a komerce_order_no, cancel it with Komerce
     if (order.komerce_order_no) {
-      const KOMERCE_CANCEL_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/cancel';
-      
-      const formData = new URLSearchParams();
-      formData.append('order_no', order.komerce_order_no);
-      formData.append('reason', 'Cancelled by customer request from admin dashboard.');
+      const komercePayload = {
+        order_no: order.komerce_order_no,
+      };
 
       const komerceResponse = await fetch(KOMERCE_CANCEL_URL, {
-        method: 'POST',
+        method: 'PUT', // FIX: Changed from POST to PUT
         headers: {
           'x-api-key': KOMERCE_API_KEY,
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json', // FIX: Changed to JSON
           'Accept': 'application/json'
         },
-        body: formData.toString()
+        body: JSON.stringify(komercePayload) // FIX: Sending as JSON
       });
 
       const komerceJson = await komerceResponse.json();
       if (!komerceResponse.ok || komerceJson.meta?.status !== 'success') {
-        throw new Error(`[Komerce API] ${komerceJson.meta?.message || 'Failed to cancel order.'}`);
+        const errorMessage = komerceJson.data?.errors || komerceJson.meta?.message || 'Failed to cancel order with Komerce.';
+        throw new Error(`[Komerce API] ${errorMessage}`);
       }
     }
 
