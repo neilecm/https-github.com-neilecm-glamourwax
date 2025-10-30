@@ -24,7 +24,7 @@ serve(async (req) => {
       throw new Error("orderNos (array), pickupDate, pickupTime, and pickupVehicle are required.");
     }
     
-    // --- Time Validation (remains the same) ---
+    // --- Time Validation ---
     const requestedPickupDateTime = new Date(`${pickupDate}T${pickupTime}:00.000+08:00`);
     const nowUtc = new Date();
     const minPickupDateTimeUtc = new Date(nowUtc.getTime() + 90 * 60 * 1000);
@@ -61,9 +61,12 @@ serve(async (req) => {
     }
     
     // --- 2. Prepare payload for Komerce API ---
+    // FIX: Append seconds to the time to match the HH:mm:ss format.
+    const pickupTimeWithSeconds = `${pickupTime}:00`;
+
     const komercePayload = {
       pickup_date: pickupDate,
-      pickup_time: pickupTime,
+      pickup_time: pickupTimeWithSeconds,
       pickup_vehicle: pickupVehicle,
       orders: foundKomerceNos.map(komerce_no => ({ order_no: komerce_no })),
     };

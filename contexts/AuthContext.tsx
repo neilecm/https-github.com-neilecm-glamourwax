@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useMemo } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useMemo, useRef } from 'react';
 import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import type { Profile } from '../types';
@@ -25,8 +25,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [authEvent, setAuthEvent] = useState<AuthChangeEvent | null>(null);
   
-  // Flag to differentiate between a user-initiated sign-out and an automatic one (e.g., during login).
-  const [explicitlySigningOut, setExplicitlySigningOut] = useState(false);
+  // Use a ref for the sign-out flag to prevent the useEffect from re-running.
+  // This makes the auth listener much more stable.
+  const explicitlySigningOut = useRef(false);
 
   const fetchProfile = useCallback(async (user: User) => {
     try {
@@ -89,11 +90,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const signOut = useCallback(async () => {
-    setExplicitlySigningOut(true); // Set flag before calling signOut
+    explicitlySigningOut.current = true; // Set ref before calling signOut
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error.message);
-      setExplicitlySigningOut(false); // Reset flag on error
+      explicitlySigningOut.current = false; // Reset ref on error
     }
   }, []);
 
@@ -108,12 +109,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsAnonymous(currentUser.is_anonymous);
         await fetchProfile(currentUser);
         await checkAdminStatus(currentUser.email);
-        setExplicitlySigningOut(false); // A new session is active, reset the flag.
+        explicitlySigningOut.current = false; // A new session is active, reset the flag.
         setLoading(false);
       } else { // newSession is null
         // Create a new anonymous session ONLY if this is the first load OR if the user explicitly clicked sign out.
-        if (_event === 'INITIAL_SESSION' || explicitlySigningOut) {
-          setExplicitlySigningOut(false); // Reset flag
+        if (_event === 'INITIAL_SESSION' || explicitlySigningOut.current) {
+          explicitlySigningOut.current = false; // Reset ref
           const { error } = await supabase.auth.signInAnonymously();
           if (error) {
             console.error("Critical failure: Could not sign in anonymously.", error);
@@ -122,7 +123,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // The listener will re-fire with the new anonymous session, no need to set state here.
         } else {
           // For other SIGNED_OUT events (like during a login flow), just clear the state and wait for the subsequent SIGNED_IN event.
-          // Do not create a new anonymous session here to avoid the race condition.
           setSession(null);
           setUser(null);
           setProfile(null);
@@ -136,7 +136,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, [fetchProfile, checkAdminStatus, explicitlySigningOut]);
+  }, [fetchProfile, checkAdminStatus]); // Dependencies are now stable, effect runs only once.
 
   const value = useMemo(() => ({
     session,
