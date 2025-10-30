@@ -52,16 +52,15 @@ const UserMenu: React.FC<{ onNavigate: (view: AppView) => void; onLogout: () => 
 const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
   const { cartCount } = useCart();
   const { wishlistCount } = useWishlist();
-  // Get session and signOut from useAuth in the parent Header component.
-  const { session, isAdmin, signOut } = useAuth();
+  // Get session, signOut, and isAnonymous from useAuth.
+  const { session, isAdmin, signOut, isAnonymous } = useAuth();
 
   // The logout logic now lives in the Header, which does not unmount during sign out.
   const handleLogout = useCallback(async () => {
     // Navigate home first to ensure a smooth transition.
     onNavigate({ name: View.HOME });
     
-    // Then, execute the sign-out logic. The Header component itself remains mounted,
-    // only its child UserMenu will be replaced by the Login button. This is much safer.
+    // Then, execute the sign-out logic.
     try {
         await signOut();
     } catch (error) {
@@ -97,8 +96,8 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
             Contact
           </button>
 
-          {session ? (
-            // Pass the stable handleLogout function down to the UserMenu.
+          {/* FIX: Show UserMenu only for non-anonymous users. */}
+          {session && !isAnonymous ? (
             <UserMenu onNavigate={onNavigate} onLogout={handleLogout} />
           ) : (
             <button onClick={() => onNavigate({ name: View.AUTH })} className="text-gray-600 hover:text-pink-500 transition-colors">

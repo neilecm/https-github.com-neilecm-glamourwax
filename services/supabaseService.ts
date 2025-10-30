@@ -171,10 +171,12 @@ export const supabaseService = {
         *,
         customers (*),
         order_items (
-          *,
+          quantity,
+          price,
           product_variants (
+            id,
             name,
-            products (name)
+            products (id, name)
           )
         )
       `)
@@ -182,22 +184,9 @@ export const supabaseService = {
 
     if (error) throw new Error(`DB Error (Get User Orders): ${error.message}`);
     
-    // The data structure should be compatible with FullOrder, but we can do a light transform just in case
-    return (data || []).map((order: any) => ({
-      ...order,
-      order_items: (order.order_items || []).map((item: any) => ({
-        ...item,
-        // Ensure the nested structure matches the FullOrder type if needed
-        products: {
-            id: item.product_variants.products.id,
-            name: item.product_variants.products.name,
-            product_variants: {
-                id: item.product_variants.id,
-                name: item.product_variants.name
-            }
-        }
-      }))
-    })) as FullOrder[];
+    // The query now returns data that directly matches the updated FullOrder type.
+    // No manual and buggy transformation is needed.
+    return (data || []) as FullOrder[];
   },
 
 

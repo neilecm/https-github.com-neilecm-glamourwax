@@ -21,11 +21,11 @@ export const komerceService = {
   },
 
   /**
-   * Requests a pickup for an order that has been submitted to Komerce.
+   * Requests a pickup for one or more orders that have been submitted to Komerce.
    * This changes the order status to 'shipped' and adds an AWB number.
    */
-  async arrangePickup(orderNo: string): Promise<any> {
-    return invokeFunction('arrange-pickup', { orderNo });
+  async arrangePickup(details: { orderNos: string[]; pickupDate: string; pickupTime: string; pickupVehicle: string; }): Promise<any> {
+    return invokeFunction('arrange-pickup', details);
   },
 
   /**

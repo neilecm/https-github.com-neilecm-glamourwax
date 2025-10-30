@@ -81,6 +81,111 @@ const getStatusBadgeClass = (status: FullOrder['status']) => {
     }
 };
 
+const ArrangePickupModal: React.FC<{
+    item: FullOrder | null;
+    itemCount: number;
+    onConfirm: (details: { pickupDate: string; pickupTime: string; pickupVehicle: 'Motor' | 'Mobil' | 'Truk'; }) => void;
+    onClose: () => void;
+    isSubmitting: boolean;
+}> = ({ item, itemCount, onConfirm, onClose, isSubmitting }) => {
+    const today = new Date().toISOString().split('T')[0];
+    const [pickupDate, setPickupDate] = useState(today);
+    const [pickupTime, setPickupTime] = useState('');
+    const [pickupVehicle, setPickupVehicle] = useState<'Motor' | 'Mobil' | 'Truk'>('Motor');
+    const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+
+    useEffect(() => {
+        const generateTimes = () => {
+            const times: string[] = [];
+            for (let hour = 8; hour <= 20; hour++) {
+                for (let minute = 0; minute < 60; minute += 30) {
+                    if (hour === 20 && minute > 0) continue;
+                    const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                    times.push(time);
+                }
+            }
+            const now = new Date();
+            const minPickupTime = new Date(now.getTime() + 90 * 60 * 1000);
+            const selectedDateObj = new Date(pickupDate);
+            const isToday = selectedDateObj.toISOString().split('T')[0] === now.toISOString().split('T')[0];
+
+            if (isToday) {
+                const filteredTimes = times.filter(time => {
+                    const [hour, minute] = time.split(':');
+                    const slotTime = new Date(pickupDate);
+                    slotTime.setHours(parseInt(hour), parseInt(minute), 0, 0);
+                    return slotTime > minPickupTime;
+                });
+                setAvailableTimes(filteredTimes);
+                if (filteredTimes.length > 0 && !filteredTimes.includes(pickupTime)) {
+                    setPickupTime(filteredTimes[0]);
+                } else if (filteredTimes.length === 0) {
+                    setPickupTime('');
+                }
+            } else {
+                setAvailableTimes(times);
+                 if (times.length > 0 && !times.includes(pickupTime)) {
+                    setPickupTime(times[0]);
+                }
+            }
+        };
+        generateTimes();
+    }, [pickupDate]);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!pickupDate || !pickupTime || !pickupVehicle) return;
+        onConfirm({ pickupDate, pickupTime, pickupVehicle });
+    };
+
+    const title = item 
+        ? `Arrange Pickup for ${item.order_number}`
+        : `Arrange Pickup for ${itemCount} Orders`;
+    
+    return (
+         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" onClick={onClose}>
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <form onSubmit={handleSubmit}>
+                    <h2 className="text-xl font-bold mb-4">{title}</h2>
+                    <div className="space-y-4">
+                        <div>
+                            <label htmlFor="pickupDate" className="block text-sm font-medium text-gray-700">Pickup Date</label>
+                            <input type="date" id="pickupDate" value={pickupDate} min={today} onChange={e => setPickupDate(e.target.value)} required className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm" />
+                        </div>
+                        <div>
+                             <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700">Pickup Time (WITA)</label>
+                             <select id="pickupTime" value={pickupTime} onChange={e => setPickupTime(e.target.value)} required disabled={availableTimes.length === 0} className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white">
+                                {availableTimes.length > 0 ? (
+                                    availableTimes.map(time => <option key={time} value={time}>{time}</option>)
+                                ) : (
+                                    <option>No available slots for today</option>
+                                )}
+                             </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Vehicle</label>
+                            <div className="mt-1 flex space-x-4">
+                                {(['Motor', 'Mobil', 'Truk'] as const).map(vehicle => (
+                                    <label key={vehicle} className="flex items-center">
+                                        <input type="radio" name="pickupVehicle" value={vehicle} checked={pickupVehicle === vehicle} onChange={() => setPickupVehicle(vehicle)} className="h-4 w-4 text-pink-600 border-gray-300"/>
+                                        <span className="ml-2 text-gray-700">{vehicle}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="mt-6 flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" disabled={isSubmitting || !pickupTime} className="bg-pink-500 text-white px-4 py-2 rounded-md hover:bg-pink-600 disabled:bg-pink-300">
+                            {isSubmitting ? <Spinner /> : 'Confirm Pickup'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+         </div>
+    );
+};
+
 
 const OrdersManager: React.FC = () => {
     const [orders, setOrders] = useState<FullOrder[]>([]);
@@ -91,6 +196,9 @@ const OrdersManager: React.FC = () => {
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedOrderDetails, setSelectedOrderDetails] = useState<KomerceOrderDetail | null>(null);
     const [isModalLoading, setIsModalLoading] = useState(false);
+    const [schedulingOrder, setSchedulingOrder] = useState<FullOrder | null>(null);
+    const [isSchedulingBulk, setIsSchedulingBulk] = useState(false);
+    const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
 
 
     const fetchOrders = useCallback(async () => {
@@ -117,40 +225,91 @@ const OrdersManager: React.FC = () => {
             await action();
             await fetchOrders(); 
         } catch (err: any) {
-            setError(`Action failed: ${err.message}`);
+            const errMessage = err.message || 'An unknown error occurred.';
+            const finalMessage = errMessage.includes('Pickup scheduled with some failures')
+                ? `Pickup scheduled with some failures (1/${selectedOrders.size}). Examples: ${errMessage.split('Failed: ')[1]}`
+                : `Action failed: ${errMessage}`;
+            setError(finalMessage);
         } finally {
             setActionLoading(prev => ({ ...prev, [orderId]: false }));
         }
     };
+    
+    const handleSelectOrder = (orderNumber: string) => {
+        setSelectedOrders(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(orderNumber)) {
+                newSet.delete(orderNumber);
+            } else {
+                newSet.add(orderNumber);
+            }
+            return newSet;
+        });
+    };
+    
+    const handleSelectAll = (e: ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) {
+            setSelectedOrders(new Set(orders.map(o => o.order_number)));
+        } else {
+            setSelectedOrders(new Set());
+        }
+    };
+
+    const isAllSelected = orders.length > 0 && selectedOrders.size === orders.length;
+
+    const { canBulkPickup, canBulkPrint } = useMemo(() => {
+        if (selectedOrders.size === 0) return { canBulkPickup: false, canBulkPrint: false };
+        const selected = orders.filter(o => selectedOrders.has(o.order_number));
+        return {
+            canBulkPickup: selected.every(o => o.status === 'processing'),
+            canBulkPrint: selected.every(o => ['label_created', 'shipped'].includes(o.status)),
+        };
+    }, [selectedOrders, orders]);
+
 
     const handleSubmitToKomerce = (order: FullOrder) => {
         handleAction(`submit-${order.id}`, () => komerceService.submitOrderToKomerce(order.id));
     };
 
-    const handleArrangePickup = (order: FullOrder) => {
-        handleAction(`pickup-${order.order_number}`, () => komerceService.arrangePickup(order.order_number));
+    const handleConfirmPickup = (details: { pickupDate: string; pickupTime: string; pickupVehicle: 'Motor' | 'Mobil' | 'Truk'; }) => {
+        if (isSchedulingBulk) {
+             handleAction(`bulk-pickup`, () => komerceService.arrangePickup({
+                orderNos: Array.from(selectedOrders),
+                ...details
+            }));
+            setIsSchedulingBulk(false);
+            setSelectedOrders(new Set());
+        } else if (schedulingOrder) {
+            handleAction(`pickup-${schedulingOrder.order_number}`, () => komerceService.arrangePickup({
+                orderNos: [schedulingOrder.order_number],
+                ...details
+            }));
+            setSchedulingOrder(null);
+        }
     };
     
-    const handlePrintWaybill = async (order: FullOrder) => {
-        const actionId = `waybill-${order.order_number}`;
+    const handlePrintWaybill = async (orderNos: string[]) => {
+        const actionId = `waybill-${orderNos.join('-')}`;
         setActionLoading(prev => ({ ...prev, [actionId]: true }));
         setError(null);
         try {
-            const pdfBlob = await komerceService.printWaybill([order.order_number]);
+            const pdfBlob = await komerceService.printWaybill(orderNos);
             const url = URL.createObjectURL(pdfBlob);
             window.open(url, '_blank');
-            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, waybill_url: url } : o));
+            // Optimistically update local state for single prints
+            if (orderNos.length === 1) {
+                setOrders(prev => prev.map(o => o.order_number === orderNos[0] ? { ...o, waybill_url: url } : o));
+            }
+            setSelectedOrders(new Set()); // Clear selection
         } catch(err: any) {
-             setError(`Failed to print waybill for ${order.order_number}: ${err.message}`);
+             setError(`Failed to print waybill(s): ${err.message}`);
         } finally {
             setActionLoading(prev => ({ ...prev, [actionId]: false }));
         }
     };
     
     const handleVerifyPayment = (order: FullOrder) => {
-        handleAction(`check-${order.order_number}`, async () => {
-            await supabaseService.checkOrderStatus(order.order_number);
-        });
+        handleAction(`check-${order.order_number}`, () => supabaseService.checkOrderStatus(order.order_number));
     };
 
     const handleCancelOrder = (order: FullOrder) => {
@@ -170,7 +329,6 @@ const OrdersManager: React.FC = () => {
         setError(null);
         try {
             const details = await komerceService.getKomerceOrderDetails(order.order_number);
-            
             const mergedDetails: KomerceOrderDetail = {
                 ...details,
                 shipping_cost: order.shipping_cost_original ?? details.shipping_cost,
@@ -179,7 +337,6 @@ const OrdersManager: React.FC = () => {
                 insurance_value: order.insurance_amount ?? details.insurance_value,
                 grand_total: order.total_amount, 
             };
-
             setSelectedOrderDetails(mergedDetails);
         } catch (err: any) {
             setError(`Failed to fetch shipping details: ${err.message}`);
@@ -194,21 +351,43 @@ const OrdersManager: React.FC = () => {
     return (
         <div>
             {isDetailModalOpen && (
-                <ShippingDetailModal 
-                    details={selectedOrderDetails}
-                    isLoading={isModalLoading}
-                    onClose={() => setIsDetailModalOpen(false)}
+                <ShippingDetailModal details={selectedOrderDetails} isLoading={isModalLoading} onClose={() => setIsDetailModalOpen(false)} />
+            )}
+            {(schedulingOrder || isSchedulingBulk) && (
+                <ArrangePickupModal
+                    item={schedulingOrder}
+                    itemCount={selectedOrders.size}
+                    onClose={() => { setSchedulingOrder(null); setIsSchedulingBulk(false); }}
+                    isSubmitting={!!actionLoading[isSchedulingBulk ? 'bulk-pickup' : `pickup-${schedulingOrder?.order_number}`]}
+                    onConfirm={handleConfirmPickup}
                 />
             )}
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-semibold">My Orders</h2>
                 <button onClick={fetchOrders} disabled={isLoading} className="text-sm bg-gray-200 px-3 py-1 rounded-md hover:bg-gray-300 disabled:bg-gray-100">Refresh</button>
             </div>
+            
+            {selectedOrders.size > 0 && (
+                <div className="bg-gray-100 p-3 rounded-md mb-4 flex items-center gap-4 border">
+                    <span className="font-semibold text-sm">{selectedOrders.size} selected</span>
+                    <button onClick={() => setIsSchedulingBulk(true)} disabled={!canBulkPickup || actionLoading['bulk-pickup']} className="text-sm bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 disabled:bg-green-300 disabled:cursor-not-allowed">
+                        {actionLoading['bulk-pickup'] ? 'Arranging...' : 'Bulk Arrange Pickup'}
+                    </button>
+                    <button onClick={() => handlePrintWaybill(Array.from(selectedOrders))} disabled={!canBulkPrint || actionLoading[`waybill-${Array.from(selectedOrders).join('-')}`]} className="text-sm bg-gray-500 text-white px-3 py-1 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                       {actionLoading[`waybill-${Array.from(selectedOrders).join('-')}`] ? 'Printing...' : 'Bulk Print Labels'}
+                    </button>
+                </div>
+            )}
+            
             {error && <div className="bg-red-100 text-red-700 p-3 rounded-md mb-4 break-words">{error}</div>}
+
             <div className="bg-white shadow-md rounded-lg overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
+                            <th className="px-4 py-3 text-left">
+                                <input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} className="h-4 w-4 text-pink-600 border-gray-300 rounded"/>
+                            </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
@@ -218,7 +397,10 @@ const OrdersManager: React.FC = () => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {orders.map(order => (
-                            <tr key={order.id}>
+                            <tr key={order.id} className={selectedOrders.has(order.order_number) ? 'bg-pink-50' : ''}>
+                                <td className="px-4 py-4">
+                                    <input type="checkbox" checked={selectedOrders.has(order.order_number)} onChange={() => handleSelectOrder(order.order_number)} className="h-4 w-4 text-pink-600 border-gray-300 rounded"/>
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <button onClick={() => handleShowDetails(order)} disabled={!order.komerce_order_no} className="text-sm font-medium text-pink-600 hover:underline disabled:text-gray-500 disabled:no-underline">
                                         {order.order_number}
@@ -253,7 +435,7 @@ const OrdersManager: React.FC = () => {
                                     )}
                                     {order.status === 'processing' && (
                                         <>
-                                            <button onClick={() => handleArrangePickup(order)} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
+                                            <button onClick={() => setSchedulingOrder(order)} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
                                                 {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
                                             </button>
                                             <button onClick={() => handleCancelOrder(order)} disabled={actionLoading[`cancel-${order.order_number}`]} className="bg-red-500 text-white px-2 py-1 rounded disabled:bg-red-300">
@@ -262,7 +444,7 @@ const OrdersManager: React.FC = () => {
                                         </>
                                     )}
                                      {(order.status === 'label_created' || order.status === 'shipped') && (
-                                        <button onClick={() => handlePrintWaybill(order)} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded disabled:bg-gray-300">
+                                        <button onClick={() => handlePrintWaybill([order.order_number])} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded disabled:bg-gray-300">
                                             {actionLoading[`waybill-${order.order_number}`] ? 'Printing...' : 'Print Label'}
                                         </button>
                                     )}

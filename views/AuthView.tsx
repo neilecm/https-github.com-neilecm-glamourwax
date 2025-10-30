@@ -8,7 +8,7 @@ interface AuthViewProps {
 }
 
 const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
-  const { isAnonymous, authEvent } = useAuth();
+  const { authEvent } = useAuth();
   const [mode, setMode] = useState<'signIn' | 'signUp' | 'forgotPassword' | 'updatePassword'>('signIn');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,25 +40,50 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
     setError(null);
     setMessage(null);
     try {
-      let authError;
-      if (isAnonymous) {
-        const { error } = await supabase.auth.updateUser({
-          email: formState.email,
-          password: formState.password,
-          data: { full_name: formState.fullName, phone_number: formState.phone },
+      const { data, error } = await supabase.auth.signUp({
+        email: formState.email,
+        password: formState.password,
+        options: {
+          data: {
+            full_name: formState.fullName,
+            phone_number: formState.phone,
+          },
+        },
+      });
+
+      // Handle the specific, persistent "Error sending confirmation mail"
+      if (error && error.message?.toLowerCase().includes('error sending confirmation mail')) {
+        console.warn("Supabase returned an email error despite confirmation being disabled. Attempting to sign in directly.");
+        
+        // This error means the user was created, but the email failed.
+        // Since confirmation is disabled in the dashboard, we can treat this as a success
+        // and proceed to sign the user in to get a session.
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: formState.email,
+            password: formState.password,
         });
-        authError = error;
+
+        if (signInError) {
+            // If the subsequent sign-in fails, it's a real issue.
+            setError(`Your account was created, but we couldn't log you in automatically. Please try signing in manually. Error: ${signInError.message}`);
+        } else {
+            // Success!
+            onLoginSuccess();
+        }
+      } else if (error) {
+        // Handle any other signup errors normally.
+        throw error;
+      } else if (data.session) {
+        // This is the expected success path when email confirmation is OFF.
+        onLoginSuccess();
+      } else if (data.user && !data.session) {
+        // This is the expected success path when email confirmation is ON.
+        setMessage('Success! Please check your email to confirm your account.');
+        setFormState({ fullName: '', email: '', phone: '', password: '' });
       } else {
-        const { error } = await supabase.auth.signUp({
-          email: formState.email,
-          password: formState.password,
-          options: { data: { full_name: formState.fullName, phone_number: formState.phone } },
-        });
-        authError = error;
+        // Fallback for any unexpected successful response structure.
+        throw new Error("An unexpected response was received from the server.");
       }
-      if (authError) throw authError;
-      setMessage('Success! Please check your email to confirm your account.');
-      setFormState({ fullName: '', email: '', phone: '', password: '' });
     } catch (err: any) {
       setError(err.message || 'An error occurred during sign up.');
     } finally {
@@ -117,7 +142,6 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
       if (error) throw error;
       setMessage('Your password has been updated successfully. You can now sign in.');
       setFormState(prev => ({ ...prev, password: '' }));
-      // Sign out the temporary session
       await supabase.auth.signOut();
       setMode('signIn');
     } catch (err: any) {

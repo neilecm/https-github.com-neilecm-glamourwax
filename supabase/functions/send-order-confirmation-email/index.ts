@@ -128,13 +128,14 @@ serve(async (req) => {
     }
 
     // --- 2. Fetch Full Order Details ---
-    // FIX: Made the foreign key relationships explicit to prevent query failures.
+    // FIX: Corrected the Supabase query syntax to properly fetch related data from
+    // foreign tables. The previous `table:column(...)` syntax was incorrect.
     const { data: orderData, error: fetchError } = await supabaseAdmin
         .from('orders')
         .select(`
             order_number, total_amount, subtotal_amount, shipping_amount, shipping_provider, shipping_service,
-            customers:customer_id ( first_name, last_name, email ),
-            addresses:shipping_address_id ( street, city_name, province_name, district_name, subdistrict_name, postal_code ),
+            customers ( first_name, last_name, email ),
+            addresses ( street, city_name, province_name, district_name, subdistrict_name, postal_code ),
             order_items (
                 quantity,
                 price,

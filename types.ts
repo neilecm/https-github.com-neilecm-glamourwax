@@ -107,10 +107,10 @@ export interface CustomerDetails {
 export interface OrderItem {
     quantity: number;
     price: number;
-    products: {
+    product_variants: {
         id: string;
         name: string;
-        product_variants: {
+        products: {
             id: string;
             name: string;
         }
