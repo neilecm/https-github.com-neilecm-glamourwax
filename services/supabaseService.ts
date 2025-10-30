@@ -1,5 +1,5 @@
 import { supabase, supabaseUrl } from './supabase';
-import type { Product, FullOrder, ContactFormData } from '../types';
+import type { Product, FullOrder, ContactFormData, CartItem } from '../types';
 
 // A new, robust helper to invoke functions using a direct fetch call.
 // This avoids the silent failures sometimes seen with supabase.functions.invoke().
@@ -158,6 +158,50 @@ export const supabaseService = {
   },
 
   /**
+   * Fetches the order history for the currently logged-in user.
+   * This is secured by Row Level Security policies in the database.
+   */
+  async getUserOrders(): Promise<FullOrder[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        customers (*),
+        order_items (
+          *,
+          product_variants (
+            name,
+            products (name)
+          )
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`DB Error (Get User Orders): ${error.message}`);
+    
+    // The data structure should be compatible with FullOrder, but we can do a light transform just in case
+    return (data || []).map((order: any) => ({
+      ...order,
+      order_items: (order.order_items || []).map((item: any) => ({
+        ...item,
+        // Ensure the nested structure matches the FullOrder type if needed
+        products: {
+            id: item.product_variants.products.id,
+            name: item.product_variants.products.name,
+            product_variants: {
+                id: item.product_variants.id,
+                name: item.product_variants.name
+            }
+        }
+      }))
+    })) as FullOrder[];
+  },
+
+
+  /**
    * Manually checks an order's status with Midtrans via a secure Edge Function.
    */
   async checkOrderStatus(orderNumber: string): Promise<{ status: string }> {
@@ -173,5 +217,115 @@ export const supabaseService = {
     await invokeFunction('send-contact-email', {
       body: formData,
     });
+  },
+
+  // --- Cart Management ---
+  async getUserCart(): Promise<CartItem[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('user_cart_items')
+      .select(`
+        id,
+        quantity,
+        variant:product_variants (
+          *,
+          product:products (id, name, category)
+        )
+      `)
+      .eq('user_id', user.id);
+
+    if (error) throw new Error(`DB Error (Get Cart): ${error.message}`);
+    if (!data) return [];
+
+    return data.map((item: any) => ({
+      cartItemId: item.id,
+      product: item.variant.product,
+      variant: { ...item.variant, productId: item.variant.product.id, imageUrls: item.variant.image_urls, videoUrl: item.variant.video_url },
+      quantity: item.quantity,
+    }));
+  },
+
+  async addUserCartItem(variantId: string, quantity: number): Promise<void> {
+    const { error } = await supabase.rpc('add_to_cart', {
+      p_variant_id: variantId,
+      p_quantity: quantity,
+    });
+    if (error) throw new Error(`DB Error (Add to Cart): ${error.message}`);
+  },
+
+  async updateUserCartItemQuantity(cartItemId: string, quantity: number): Promise<void> {
+    const { error } = await supabase
+      .from('user_cart_items')
+      .update({ quantity })
+      .eq('id', cartItemId);
+    if (error) throw new Error(`DB Error (Update Cart Quantity): ${error.message}`);
+  },
+
+  async removeUserCartItem(cartItemId: string): Promise<void> {
+    const { error } = await supabase
+      .from('user_cart_items')
+      .delete()
+      .eq('id', cartItemId);
+    if (error) throw new Error(`DB Error (Remove From Cart): ${error.message}`);
+  },
+
+  async clearUserCart(): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from('user_cart_items')
+      .delete()
+      .eq('user_id', user.id);
+    if (error) throw new Error(`DB Error (Clear Cart): ${error.message}`);
+  },
+
+  // --- Wishlist Management ---
+  async getUserWishlist(): Promise<Product[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('user_wishlist_items')
+      .select('products(*, variants:product_variants(*))')
+      .eq('user_id', user.id);
+
+    if (error) throw new Error(`DB Error (Get Wishlist): ${error.message}`);
+    if (!data) return [];
+    
+    return data.map((item: any) => ({
+      ...item.products,
+      variants: item.products.variants || [],
+      longDescription: item.products.long_description,
+      variantOptions: item.products.variant_options,
+      imageUrls: item.products.image_urls,
+      videoUrl: item.products.video_url,
+      createdAt: item.products.created_at
+    }));
+  },
+
+  async addUserWishlistItem(productId: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("User not authenticated.");
+
+    const { error } = await supabase
+      .from('user_wishlist_items')
+      .insert({ user_id: user.id, product_id: productId });
+    
+    if (error && error.code !== '23505') { // Ignore unique constraint violation
+      throw new Error(`DB Error (Add to Wishlist): ${error.message}`);
+    }
+  },
+
+  async removeUserWishlistItem(productId: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("User not authenticated.");
+
+    const { error } = await supabase
+      .from('user_wishlist_items')
+      .delete()
+      .match({ user_id: user.id, product_id: productId });
+    if (error) throw new Error(`DB Error (Remove from Wishlist): ${error.message}`);
   },
 };

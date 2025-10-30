@@ -200,3 +200,10 @@ export interface MetaCampaign {
     objective: string;
     insights: MetaCampaignInsights | null;
 }
+
+export interface Profile {
+  full_name: string | null;
+  phone_number: string | null;
+  role: string | null;
+  email: string | null;
+}

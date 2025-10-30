@@ -17,27 +17,33 @@ const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v
 
 /**
  * Calculates the pickup date and time, ensuring it is at least 90 minutes
- * in the future and correctly formatted for the WITA (UTC+8) timezone.
+ * in the future from the base time (whichever is later: now or order creation).
+ * The time is correctly formatted for the WITA (UTC+8) timezone.
  */
-const calculatePickupTime = () => {
+const calculatePickupTime = (orderCreationTime: string) => {
     const now = new Date();
-    // Add 95 minutes (90 min minimum + 5 min buffer) to the current time.
-    const pickupDateTime = new Date(now.getTime() + 95 * 60 * 1000);
+    const orderCreatedAt = new Date(orderCreationTime);
+
+    // Determine the base time: either now or when the order was created, whichever is later.
+    const baseTime = now > orderCreatedAt ? now : orderCreatedAt;
+
+    // Add 95 minutes (90 min minimum + 5 min buffer) to the base time.
+    const pickupDateTime = new Date(baseTime.getTime() + 95 * 60 * 1000);
 
     // Deno's environment is UTC, so we need to manually adjust for UTC+8 (WITA).
     const witaOffset = 8 * 60 * 60 * 1000;
     const witaDate = new Date(pickupDateTime.getTime() + witaOffset);
 
     const year = witaDate.getUTCFullYear();
-    // Corrected line: use getUTCMonth() which is 0-indexed
     const month = (witaDate.getUTCMonth() + 1).toString().padStart(2, '0');
     const day = witaDate.getUTCDate().toString().padStart(2, '0');
     const hours = witaDate.getUTCHours().toString().padStart(2, '0');
     const minutes = witaDate.getUTCMinutes().toString().padStart(2, '0');
+    const seconds = witaDate.getUTCSeconds().toString().padStart(2, '0');
 
     return {
         pickup_date: `${year}-${month}-${day}`,
-        pickup_time: `${hours}:${minutes}`,
+        pickup_time: `${hours}:${minutes}:${seconds}`,
     };
 };
 
@@ -49,11 +55,9 @@ const getVehicleType = (totalWeight: number, shippingProvider: string, shippingS
     const upperService = shippingService.toUpperCase();
     const upperProvider = shippingProvider.toUpperCase();
 
-    // Specific service overrides
     if (upperService.includes('TRUCKING') || upperService.includes('CARGO')) return 'Truk';
     if (upperProvider.includes('GOSEND') || upperProvider.includes('GRAB') || upperService.includes('INSTANT') || upperService.includes('SAMEDAY')) return 'Motor';
 
-    // Weight-based fallback
     if (totalWeight >= 10000) return 'Truk'; // 10 kg
     if (totalWeight >= 5000) return 'Mobil';   // 5 kg
     return 'Motor';
@@ -72,10 +76,10 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // --- 1. Get order details, including shipping info ---
+    // --- 1. Get order details, now including created_at ---
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('id, komerce_order_no, shipping_vehicle, shipping_provider, shipping_service')
+      .select('id, created_at, komerce_order_no, shipping_vehicle, shipping_provider, shipping_service')
       .eq('order_number', orderNo)
       .single();
 
@@ -98,7 +102,6 @@ serve(async (req) => {
         if (itemsError) throw new Error(`DB Error (Fetch Items for Fallback): ${itemsError.message}`);
         
         const totalWeight = items.reduce((acc: number, item: any) => {
-            // Safely access weight, defaulting to 0 if variant is missing to prevent crashes
             const weight = item.product_variants?.weight || 0;
             return acc + (weight * item.quantity);
         }, 0);
@@ -107,8 +110,8 @@ serve(async (req) => {
         console.log(`Fallback determined vehicle for ${orderNo} is '${pickupVehicle}' based on weight ${totalWeight}g.`);
     }
     
-    // --- 3. Prepare payload for Komerce API ---
-    const { pickup_date, pickup_time } = calculatePickupTime();
+    // --- 3. Prepare payload for Komerce API with correct time calculation ---
+    const { pickup_date, pickup_time } = calculatePickupTime(order.created_at);
     
     const komercePayload = {
       pickup_date,
@@ -143,11 +146,9 @@ serve(async (req) => {
             .eq('order_number', orderNo);
 
         if (updateError) {
-            // Log the DB error but don't fail the entire function, as the pickup was successful.
             console.error(`DB Error (Update AWB for ${orderNo}): ${updateError.message}`);
         }
     } else {
-        // This handles cases where the API returns a 2xx status but the individual pickup failed.
         throw new Error(`Komerce pickup failed for ${pickupResult?.order_no}: Status was '${pickupResult?.status}'`);
     }
 

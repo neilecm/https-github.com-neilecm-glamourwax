@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import Spinner from '../components/Spinner';
 
 interface AuthViewProps {
@@ -7,6 +8,7 @@ interface AuthViewProps {
 }
 
 const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
+  const { isAnonymous } = useAuth();
   const [activeTab, setActiveTab] = useState<'signIn' | 'signUp'>('signIn');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,20 +32,37 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
     setError(null);
     setMessage(null);
     try {
-      const { error } = await supabase.auth.signUp({
-        email: formState.email,
-        password: formState.password,
-        options: {
+      let authError;
+      if (isAnonymous) {
+        // Promote the existing anonymous user to a permanent one
+        const { error } = await supabase.auth.updateUser({
+          email: formState.email,
+          password: formState.password,
           data: {
             full_name: formState.fullName,
             phone_number: formState.phone,
           },
-        },
-      });
+        });
+        authError = error;
+      } else {
+        // Standard sign-up for a completely new user
+        const { error } = await supabase.auth.signUp({
+          email: formState.email,
+          password: formState.password,
+          options: {
+            data: {
+              full_name: formState.fullName,
+              phone_number: formState.phone,
+            },
+          },
+        });
+        authError = error;
+      }
 
-      if (error) throw error;
-      setMessage('Registration successful! Please check your email to confirm your account.');
+      if (authError) throw authError;
+      setMessage('Success! Please check your email to confirm your account.');
       setFormState({ fullName: '', email: '', phone: '', password: '' });
+      // The onAuthStateChange listener will handle navigation after confirmation
     } catch (err: any) {
       setError(err.message || 'An error occurred during sign up.');
     } finally {
@@ -66,7 +85,11 @@ const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
       // The onAuthStateChange listener in AuthContext will handle navigation
       onLoginSuccess();
     } catch (err: any) {
-      setError(err.message || 'An error occurred during sign in.');
+      if (err.message && err.message.includes('Email not confirmed')) {
+          setError('Your email is not confirmed yet. Please check your inbox for the confirmation link.');
+      } else {
+          setError(err.message || 'An error occurred during sign in.');
+      }
     } finally {
       setLoading(false);
     }

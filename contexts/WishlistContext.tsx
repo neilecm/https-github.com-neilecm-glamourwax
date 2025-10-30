@@ -1,51 +1,56 @@
-
-
 import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
 import type { Product } from '../types';
+import { useAuth } from './AuthContext';
+import { supabaseService } from '../services/supabaseService';
 
 interface WishlistContextType {
   wishlistItems: Product[];
-  addToWishlist: (product: Product) => void;
-  removeFromWishlist: (productId: string) => void;
+  addToWishlist: (product: Product) => Promise<void>;
+  removeFromWishlist: (productId: string) => Promise<void>;
   isInWishlist: (productId: string) => boolean;
   wishlistCount: number;
+  isLoading: boolean;
 }
 
 const WishlistContext = createContext<WishlistContextType | undefined>(undefined);
 
-const WISH_LIST_STORAGE_KEY = 'cera_brasileira_wishlist';
-
 export const WishlistProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [wishlistItems, setWishlistItems] = useState<Product[]>(() => {
-    try {
-      const items = window.localStorage.getItem(WISH_LIST_STORAGE_KEY);
-      return items ? JSON.parse(items) : [];
-    } catch (error) {
-      console.error('Error reading wishlist from localStorage', error);
-      return [];
+  const { user, loading: authLoading } = useAuth();
+  const [wishlistItems, setWishlistItems] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const fetchWishlist = useCallback(async () => {
+    if (!user) {
+      setWishlistItems([]);
+      setIsLoading(false);
+      return;
     }
-  });
+    setIsLoading(true);
+    try {
+      const items = await supabaseService.getUserWishlist();
+      setWishlistItems(items);
+    } catch (err) {
+      console.error("Failed to load wishlist", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(WISH_LIST_STORAGE_KEY, JSON.stringify(wishlistItems));
-    } catch (error) {
-      console.error('Error writing wishlist to localStorage', error);
+    if (!authLoading) {
+      fetchWishlist();
     }
-  }, [wishlistItems]);
+  }, [authLoading, fetchWishlist]);
 
-  const addToWishlist = useCallback((product: Product) => {
-    setWishlistItems(prevItems => {
-      if (prevItems.find(item => item.id === product.id)) {
-        return prevItems; // Already in wishlist
-      }
-      return [...prevItems, product];
-    });
-  }, []);
+  const addToWishlist = async (product: Product) => {
+    await supabaseService.addUserWishlistItem(product.id);
+    await fetchWishlist(); // Refresh
+  };
 
-  const removeFromWishlist = useCallback((productId: string) => {
-    setWishlistItems(prevItems => prevItems.filter(item => item.id !== productId));
-  }, []);
+  const removeFromWishlist = async (productId: string) => {
+    await supabaseService.removeUserWishlistItem(productId);
+    await fetchWishlist(); // Refresh
+  };
 
   const isInWishlist = useCallback((productId: string) => {
     return wishlistItems.some(item => item.id === productId);
@@ -54,7 +59,7 @@ export const WishlistProvider: React.FC<{ children: ReactNode }> = ({ children }
   const wishlistCount = wishlistItems.length;
 
   return (
-    <WishlistContext.Provider value={{ wishlistItems, addToWishlist, removeFromWishlist, isInWishlist, wishlistCount }}>
+    <WishlistContext.Provider value={{ wishlistItems, addToWishlist, removeFromWishlist, isInWishlist, wishlistCount, isLoading }}>
       {children}
     </WishlistContext.Provider>
   );

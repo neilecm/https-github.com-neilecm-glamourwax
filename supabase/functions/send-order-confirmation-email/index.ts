@@ -128,12 +128,13 @@ serve(async (req) => {
     }
 
     // --- 2. Fetch Full Order Details ---
+    // FIX: Made the foreign key relationships explicit to prevent query failures.
     const { data: orderData, error: fetchError } = await supabaseAdmin
         .from('orders')
         .select(`
             order_number, total_amount, subtotal_amount, shipping_amount, shipping_provider, shipping_service,
-            customers ( first_name, last_name, email ),
-            addresses ( street, city_name, province_name, district_name, subdistrict_name, postal_code ),
+            customers:customer_id ( first_name, last_name, email ),
+            addresses:shipping_address_id ( street, city_name, province_name, district_name, subdistrict_name, postal_code ),
             order_items (
                 quantity,
                 price,
@@ -154,6 +155,10 @@ serve(async (req) => {
     // --- 3. Construct and Send Email ---
     const emailHtml = generateEmailHtml(orderData);
     const customerEmail = orderData.customers.email;
+    
+    if (!customerEmail) {
+        throw new Error(`Customer for order ID ${order_id} does not have an email address.`);
+    }
 
     const emailPayload = {
       from: 'Cera Brasileira <onboarding@resend.dev>', // Resend requires this format for the free tier

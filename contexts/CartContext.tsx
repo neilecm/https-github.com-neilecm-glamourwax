@@ -1,88 +1,98 @@
-
 import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
 import type { CartItem, Product, ProductVariant } from '../types';
+import { useAuth } from './AuthContext';
+import { supabaseService } from '../services/supabaseService';
 
 interface CartContextType {
   cartItems: CartItem[];
-  addToCart: (product: Product, variant: ProductVariant, quantity: number) => void;
-  removeFromCart: (cartItemId: string) => void;
-  updateQuantity: (cartItemId: string, quantity: number) => void;
-  clearCart: () => void;
+  addToCart: (product: Product, variant: ProductVariant, quantity: number) => Promise<void>;
+  removeFromCart: (cartItemId: string) => Promise<void>;
+  updateQuantity: (cartItemId: string, quantity: number) => Promise<void>;
+  clearCart: () => Promise<void>;
   cartCount: number;
   cartTotal: number;
+  isLoading: boolean;
+  error: string | null;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-const CART_STORAGE_KEY = 'cera_brasileira_cart';
-
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      const items = window.localStorage.getItem(CART_STORAGE_KEY);
-      return items ? JSON.parse(items) : [];
-    } catch (error) {
-      console.error('Error reading cart from localStorage', error);
-      return [];
+  const { user, loading: authLoading } = useAuth();
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const fetchCart = useCallback(async () => {
+    if (!user) {
+      setIsLoading(false);
+      setCartItems([]);
+      return;
     }
-  });
+    setIsLoading(true);
+    setError(null);
+    try {
+      const items = await supabaseService.getUserCart();
+      setCartItems(items);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load cart.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
+    // Fetch cart only when auth is done loading and we have a user.
+    if (!authLoading) {
+      fetchCart();
+    }
+  }, [authLoading, fetchCart]);
+
+  const addToCart = async (product: Product, variant: ProductVariant, quantity: number) => {
     try {
-      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
-    } catch (error) {
-      console.error('Error writing cart to localStorage', error);
+      await supabaseService.addUserCartItem(variant.id, quantity);
+      await fetchCart(); // Refresh cart from DB
+    } catch (err: any) {
+      setError(err.message || 'Failed to add item to cart.');
     }
-  }, [cartItems]);
+  };
 
-  const addToCart = useCallback((product: Product, variant: ProductVariant, quantity: number) => {
-    const cartItemId = `${product.id}-${variant.id}`;
-    setCartItems(prevItems => {
-      const existingItem = prevItems.find(item => item.cartItemId === cartItemId);
-      if (existingItem) {
-        return prevItems.map(item =>
-          item.cartItemId === cartItemId
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
-      }
-      return [
-          ...prevItems, 
-          { 
-              cartItemId, 
-              product: { id: product.id, name: product.name, category: product.category }, 
-              variant, 
-              quantity 
-          }
-      ];
-    });
-  }, []);
+  const removeFromCart = async (cartItemId: string) => {
+    try {
+      await supabaseService.removeUserCartItem(cartItemId);
+      await fetchCart(); // Refresh
+    } catch (err: any) {
+      setError(err.message || 'Failed to remove item from cart.');
+    }
+  };
 
-  const removeFromCart = useCallback((cartItemId: string) => {
-    setCartItems(prevItems => prevItems.filter(item => item.cartItemId !== cartItemId));
-  }, []);
-
-  const updateQuantity = useCallback((cartItemId: string, quantity: number) => {
+  const updateQuantity = async (cartItemId: string, quantity: number) => {
     if (quantity <= 0) {
-      removeFromCart(cartItemId);
+      await removeFromCart(cartItemId);
     } else {
-      setCartItems(prevItems =>
-        prevItems.map(item =>
-          item.cartItemId === cartItemId ? { ...item, quantity } : item
-        )
-      );
+      try {
+        await supabaseService.updateUserCartItemQuantity(cartItemId, quantity);
+        await fetchCart(); // Refresh
+      } catch (err: any) {
+        setError(err.message || 'Failed to update item quantity.');
+      }
     }
-  }, [removeFromCart]);
+  };
 
-  const clearCart = useCallback(() => {
-    setCartItems([]);
-  }, []);
+  const clearCart = async () => {
+    try {
+      await supabaseService.clearUserCart();
+      setCartItems([]); // Optimistic update
+    } catch (err: any) {
+      setError(err.message || 'Failed to clear cart.');
+    }
+  };
 
   const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
   const cartTotal = cartItems.reduce((acc, item) => acc + item.variant.price * item.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ cartItems, addToCart, removeFromCart, updateQuantity, clearCart, cartCount, cartTotal }}>
+    <CartContext.Provider value={{ cartItems, addToCart, removeFromCart, updateQuantity, clearCart, cartCount, cartTotal, isLoading, error }}>
       {children}
     </CartContext.Provider>
   );

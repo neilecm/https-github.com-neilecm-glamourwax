@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabase';
 import { rajaOngkirService } from '../services/rajaOngkirService';
 import { midtransService } from '../services/midtransService';
 import Spinner from '../components/Spinner';
@@ -9,14 +11,83 @@ interface CheckoutViewProps {
   onOrderSuccess: (orderId: string) => void;
   onOrderPending: (orderId: string) => void;
   onOrderFailed: (message: string) => void;
+  onAuthRedirect: () => void;
 }
 
-const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPending, onOrderFailed }) => {
+const GuestAuthForm: React.FC<{ onAuthSuccess: () => void, onSwitchToLogin: () => void }> = ({ onAuthSuccess, onSwitchToLogin }) => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [fullName, setFullName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handlePromoteUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+        try {
+            const { error } = await supabase.auth.updateUser({
+                email,
+                password,
+                data: { full_name: fullName, phone_number: phone }
+            });
+            if (error) throw error;
+            onAuthSuccess();
+        } catch (err: any) {
+            setError(err.message || 'Failed to create account.');
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    return (
+        <div className="bg-white p-8 rounded-lg shadow-xl max-w-lg mx-auto">
+            <h2 className="text-2xl font-bold mb-4 text-center">Create an Account to Continue</h2>
+            <p className="text-center text-gray-500 mb-6">
+                Creating an account allows you to track your order history and save your details for faster checkout next time.
+            </p>
+            {error && <div className="bg-red-100 text-red-700 p-3 rounded-md mb-4 text-sm">{error}</div>}
+            <form onSubmit={handlePromoteUser} className="space-y-4">
+                <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Full Name" required className="w-full p-3 border rounded-md"/>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email Address" required className="w-full p-3 border rounded-md"/>
+                <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone Number" required className="w-full p-3 border rounded-md"/>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Create a Password" required className="w-full p-3 border rounded-md"/>
+                <button type="submit" disabled={loading} className="w-full bg-pink-500 text-white p-3 rounded-md font-semibold hover:bg-pink-600 disabled:bg-pink-300">
+                    {loading ? <Spinner /> : 'Create Account & Continue'}
+                </button>
+            </form>
+            <p className="text-center text-sm text-gray-500 mt-4">
+                Already have an account?{' '}
+                <button onClick={onSwitchToLogin} className="text-pink-600 hover:underline font-semibold">
+                    Login here
+                </button>
+            </p>
+        </div>
+    );
+};
+
+
+const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPending, onOrderFailed, onAuthRedirect }) => {
   const { cartItems, cartTotal, cartCount, clearCart } = useCart();
+  const { user, profile, isAnonymous } = useAuth();
   
   const [customer, setCustomer] = useState({
     firstName: '', lastName: '', email: '', phone: '', address: '', postalCode: ''
   });
+
+  useEffect(() => {
+    // Pre-fill form if user has a profile
+    if (profile) {
+        setCustomer(prev => ({
+            ...prev,
+            firstName: profile.full_name?.split(' ')[0] || '',
+            lastName: profile.full_name?.split(' ').slice(1).join(' ') || '',
+            email: profile.email || '',
+            phone: profile.phone_number || '',
+        }));
+    }
+  }, [profile]);
   
   const [provinces, setProvinces] = useState<Province[]>([]);
   const [cities, setCities] = useState<City[]>([]);
@@ -207,6 +278,10 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
         </div>
       );
   }
+
+  if (isAnonymous) {
+      return <GuestAuthForm onAuthSuccess={() => {}} onSwitchToLogin={onAuthRedirect} />;
+  }
   
   return (
     <div className="bg-white p-8 rounded-lg shadow-xl">
@@ -219,10 +294,10 @@ const CheckoutView: React.FC<CheckoutViewProps> = ({ onOrderSuccess, onOrderPend
                 <div>
                     <h2 className="text-2xl font-semibold mb-4">Contact Information</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input name="firstName" placeholder="First Name" onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
-                        <input name="lastName" placeholder="Last Name" onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
-                        <input type="email" name="email" placeholder="Email" onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
-                        <input type="tel" name="phone" placeholder="Phone Number" onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
+                        <input name="firstName" placeholder="First Name" value={customer.firstName} onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
+                        <input name="lastName" placeholder="Last Name" value={customer.lastName} onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
+                        <input type="email" name="email" placeholder="Email" value={customer.email} onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
+                        <input type="tel" name="phone" placeholder="Phone Number" value={customer.phone} onChange={handleInputChange} required className="p-3 border rounded-md w-full"/>
                     </div>
                 </div>
                 <div>
