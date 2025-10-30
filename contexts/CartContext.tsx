@@ -1,4 +1,5 @@
-import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
+
+import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
 import type { CartItem, Product, ProductVariant } from '../types';
 
 interface CartContextType {
@@ -13,8 +14,26 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+const CART_STORAGE_KEY = 'cera_brasileira_cart';
+
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
+    try {
+      const items = window.localStorage.getItem(CART_STORAGE_KEY);
+      return items ? JSON.parse(items) : [];
+    } catch (error) {
+      console.error('Error reading cart from localStorage', error);
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
+    } catch (error) {
+      console.error('Error writing cart to localStorage', error);
+    }
+  }, [cartItems]);
 
   const addToCart = useCallback((product: Product, variant: ProductVariant, quantity: number) => {
     const cartItemId = `${product.id}-${variant.id}`;

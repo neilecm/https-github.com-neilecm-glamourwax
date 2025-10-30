@@ -98,7 +98,9 @@ serve(async (req) => {
         if (itemsError) throw new Error(`DB Error (Fetch Items for Fallback): ${itemsError.message}`);
         
         const totalWeight = items.reduce((acc: number, item: any) => {
-            return acc + (item.product_variants.weight * item.quantity);
+            // Safely access weight, defaulting to 0 if variant is missing to prevent crashes
+            const weight = item.product_variants?.weight || 0;
+            return acc + (weight * item.quantity);
         }, 0);
 
         pickupVehicle = getVehicleType(totalWeight, order.shipping_provider, order.shipping_service);
