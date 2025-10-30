@@ -1,5 +1,6 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
-import { Session, User } from '@supabase/supabase-js';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useMemo } from 'react';
+// FIX: Import AuthChangeEvent to explicitly type the auth state change event.
+import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import type { Profile } from '../types';
 
@@ -11,6 +12,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isAnonymous: boolean;
   signOut: () => Promise<void>;
+  authEvent: AuthChangeEvent | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,6 +24,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAnonymous, setIsAnonymous] = useState(false);
+  const [authEvent, setAuthEvent] = useState<AuthChangeEvent | null>(null);
 
   const fetchProfile = useCallback(async (user: User) => {
     try {
@@ -30,29 +33,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .select('*')
         .eq('id', user.id)
         .single();
-        
-      if (error && error.code === 'PGRST116') { // No profile found, create it
-        console.log('No profile found for user, creating one.');
-        const { data: newProfile, error: insertError } = await supabase
+      if (error && error.code !== 'PGRST116') throw error; // PGRST116: no rows found
+      if (data) {
+        setProfile(data);
+      } else {
+        // If profile doesn't exist for a non-anonymous user, create it.
+        // This handles users who signed up before the trigger was in place.
+        if (!user.is_anonymous) {
+          console.log(`Profile for user ${user.id} not found. Creating one.`);
+          const { data: newProfile, error: createError } = await supabase
             .from('profiles')
             .insert({
-                id: user.id,
-                full_name: user.user_metadata.full_name || user.email?.split('@')[0],
-                phone_number: user.user_metadata.phone_number,
-                email: user.email,
+              id: user.id,
+              email: user.email,
+              full_name: user.user_metadata.full_name || user.email,
+              phone_number: user.user_metadata.phone_number || null,
             })
             .select()
             .single();
-        if (insertError) throw insertError;
-        setProfile(newProfile);
-      } else if (error) {
-          throw error;
-      } else {
-        setProfile(data);
+          if (createError) throw new Error(`DB Error (Create Profile): ${createError.message}`);
+          setProfile(newProfile);
+        } else {
+            setProfile(null);
+        }
       }
     } catch (error: any) {
       console.error('Error fetching or creating profile:', error.message);
-      setProfile(null); // Ensure profile is null on error
+      setProfile(null);
     }
   }, []);
 
@@ -72,45 +79,59 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   useEffect(() => {
-    // onAuthStateChange is called immediately with the current session,
-    // so it handles the initial check for us, removing the race condition.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        const currentUser = session?.user ?? null;
-        setSession(session);
+    // onAuthStateChange is the single source of truth.
+    // It fires once on initial load with the current session or null.
+    // It then fires again on any auth event (SIGN_IN, SIGN_OUT, etc.)
+    // FIX: Explicitly type the _event parameter to improve type safety and resolve potential compiler issues.
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, newSession) => {
+      setAuthEvent(_event);
+      // If we have a session, it's either a real user or a guest.
+      if (newSession) {
+        setSession(newSession);
+        const currentUser = newSession.user;
         setUser(currentUser);
-        setProfile(null); // Reset profile on auth change
-        setIsAdmin(false);
-
-        if (currentUser) {
-            // A user exists (either real or anonymous)
-            setIsAnonymous(currentUser.is_anonymous);
-            await fetchProfile(currentUser);
-            await checkAdminStatus(currentUser.email);
-            setLoading(false);
-        } else {
-            // No user session found. This happens on initial load or after a sign out.
-            // Let's create an anonymous session.
+        setIsAnonymous(currentUser.is_anonymous);
+        await fetchProfile(currentUser);
+        await checkAdminStatus(currentUser.email);
+        setLoading(false);
+      } 
+      // If the session is null, it means we're either a new visitor or just signed out.
+      // In either case, we need to create a new anonymous session.
+      else {
+        // Don't handle PASSWORD_RECOVERY here, as it provides a session.
+        if (_event !== 'PASSWORD_RECOVERY') {
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            setIsAdmin(false);
+            setIsAnonymous(false);
+            
+            // Don't set loading to false yet. We're about to get a new session.
             const { error } = await supabase.auth.signInAnonymously();
             if (error) {
-                console.error("Failed to sign in anonymously:", error);
-                setLoading(false); // If anonymous sign in fails, we have to stop loading or app hangs
+                console.error("Critical failure: Could not sign in anonymously.", error);
+                // If even anonymous sign-in fails, we stop loading and show the app in a logged-out state.
+                setLoading(false);
             }
-            // If signInAnonymously is successful, onAuthStateChange will be triggered again
-            // with the new anonymous session, and the `if (currentUser)` block will run.
+            // On success, the onAuthStateChange listener will fire again with the new anonymous session.
         }
+      }
     });
 
     return () => {
-        subscription.unsubscribe();
+      authListener?.subscription.unsubscribe();
     };
   }, [fetchProfile, checkAdminStatus]);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    // The onAuthStateChange listener will handle creating a new anonymous session.
-  };
+  const signOut = useCallback(async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error signing out:', error.message);
+    }
+    // The onAuthStateChange listener will automatically handle signing in as a new anonymous user.
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     session,
     user,
     profile,
@@ -118,8 +139,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isAdmin,
     isAnonymous,
     signOut,
-  };
+    authEvent,
+  }), [session, user, profile, loading, isAdmin, isAnonymous, signOut, authEvent]);
 
+  // Render children only when the initial authentication check is complete.
   return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
 };
 

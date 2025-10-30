@@ -114,7 +114,6 @@ const AITutor: React.FC = () => {
         setError(null);
 
         try {
-            // FIX: Use process.env.API_KEY as per the coding guidelines.
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
             const model = 'gemini-2.5-flash';
             

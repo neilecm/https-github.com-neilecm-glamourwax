@@ -1,6 +1,5 @@
 
-
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,13 +10,16 @@ interface HeaderProps {
   onNavigate: (view: AppView) => void;
 }
 
-const UserMenu: React.FC<{ onNavigate: (view: AppView) => void }> = ({ onNavigate }) => {
-    const { profile, signOut, isAnonymous } = useAuth();
+// UserMenu no longer handles the async logout logic.
+// It receives an onLogout function from its parent.
+const UserMenu: React.FC<{ onNavigate: (view: AppView) => void; onLogout: () => void; }> = ({ onNavigate, onLogout }) => {
+    const { profile, isAnonymous } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
 
-    const handleLogout = async () => {
-        await signOut();
-        onNavigate({ name: View.HOME });
+    // This handler now simply closes the menu and calls the function passed from Header.
+    const handleLogoutClick = () => {
+        setIsOpen(false);
+        onLogout();
     };
 
     return (
@@ -36,7 +38,7 @@ const UserMenu: React.FC<{ onNavigate: (view: AppView) => void }> = ({ onNavigat
                         </button>
                     )}
                     <button
-                        onClick={handleLogout}
+                        onClick={handleLogoutClick}
                         className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                     >
                         Logout
@@ -50,7 +52,22 @@ const UserMenu: React.FC<{ onNavigate: (view: AppView) => void }> = ({ onNavigat
 const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
   const { cartCount } = useCart();
   const { wishlistCount } = useWishlist();
-  const { session, isAdmin } = useAuth();
+  // Get session and signOut from useAuth in the parent Header component.
+  const { session, isAdmin, signOut } = useAuth();
+
+  // The logout logic now lives in the Header, which does not unmount during sign out.
+  const handleLogout = useCallback(async () => {
+    // Navigate home first to ensure a smooth transition.
+    onNavigate({ name: View.HOME });
+    
+    // Then, execute the sign-out logic. The Header component itself remains mounted,
+    // only its child UserMenu will be replaced by the Login button. This is much safer.
+    try {
+        await signOut();
+    } catch (error) {
+        console.error("Failed to sign out:", error);
+    }
+  }, [signOut, onNavigate]);
 
   return (
     <header className="bg-white/80 backdrop-blur-md shadow-md fixed top-0 left-0 right-0 z-50">
@@ -81,7 +98,8 @@ const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
           </button>
 
           {session ? (
-            <UserMenu onNavigate={onNavigate} />
+            // Pass the stable handleLogout function down to the UserMenu.
+            <UserMenu onNavigate={onNavigate} onLogout={handleLogout} />
           ) : (
             <button onClick={() => onNavigate({ name: View.AUTH })} className="text-gray-600 hover:text-pink-500 transition-colors">
                 Login
