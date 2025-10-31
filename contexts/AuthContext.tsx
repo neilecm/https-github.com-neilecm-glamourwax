@@ -89,46 +89,38 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     setLoading(true);
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setAuthEvent(_event);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setAuthEvent(event);
         setSession(session);
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
+        const user = session?.user ?? null;
+        setUser(user);
 
-        if (currentUser && !currentUser.is_anonymous) {
-          // A real user is logged in.
+        if (user && !user.is_anonymous) {
           setIsAnonymous(false);
-          await fetchProfile(currentUser);
-          await checkAdminStatus(currentUser.email);
-          setLoading(false); // Stop loading after user data is fetched.
-        } else if (currentUser && currentUser.is_anonymous) {
-          // An anonymous session is active.
-          setIsAnonymous(true);
-          setProfile(null);
-          setIsAdmin(false);
-          setLoading(false); // Stop loading, guest session is ready.
+          await fetchProfile(user);
+          await checkAdminStatus(user.email);
         } else {
-          // No session at all, this happens on initial load and after sign out.
           setIsAnonymous(true);
           setProfile(null);
           setIsAdmin(false);
-          // Attempt to get an anonymous session.
-          const { error: anonError } = await supabase.auth.signInAnonymously();
-          if (anonError) {
-            console.error("Critical: Failed to sign in anonymously.", anonError);
-            // If we can't get any session, we have to stop loading to prevent a freeze.
-            setLoading(false);
-          }
-          // If anonymous sign-in is successful, the listener will fire AGAIN with the
-          // new anonymous session, and the logic in the second 'if' block will run,
-          // eventually setting loading to false. We do nothing here to prevent a race condition.
         }
+        setLoading(false);
       }
     );
 
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) {
+            supabase.auth.signInAnonymously().catch(err => {
+                console.error("Failed to sign in anonymously on boot:", err);
+                // This is the critical fix: ensure loading stops even if anonymous sign-in fails.
+                setLoading(false);
+            });
+        }
+    });
+
     return () => {
-      authListener?.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, [fetchProfile, checkAdminStatus]);
 

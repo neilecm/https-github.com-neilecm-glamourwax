@@ -228,8 +228,8 @@ const OrdersManager: React.FC = () => {
         fetchOrders();
     }, [fetchOrders]);
     
-    const handleAction = async (orderId: string, action: () => Promise<any>) => {
-        setActionLoading(prev => ({ ...prev, [orderId]: true }));
+    const handleAction = async (actionId: string, action: () => Promise<any>) => {
+        setActionLoading(prev => ({ ...prev, [actionId]: true }));
         setError(null);
         try {
             await action();
@@ -241,7 +241,7 @@ const OrdersManager: React.FC = () => {
                 : `Action failed: ${errMessage}`;
             setError(finalMessage);
         } finally {
-            setActionLoading(prev => ({ ...prev, [orderId]: false }));
+            setActionLoading(prev => ({ ...prev, [actionId]: false }));
         }
     };
     
@@ -322,9 +322,20 @@ const OrdersManager: React.FC = () => {
         handleAction(`check-${order.order_number}`, () => supabaseService.checkOrderStatus(order.order_number));
     };
 
-    const handleCancelOrder = (order: FullOrder) => {
-        if (window.confirm(`Are you sure you want to cancel order ${order.order_number}? This action cannot be undone.`)) {
-            handleAction(`cancel-${order.order_number}`, () => komerceService.cancelOrder(order.order_number));
+    const handleCancelOrder = async (order: FullOrder) => {
+        if (!window.confirm(`Are you sure you want to cancel order ${order.order_number}? This action cannot be undone.`)) {
+            return;
+        }
+        const actionId = `cancel-${order.order_number}`;
+        setActionLoading(prev => ({ ...prev, [actionId]: true }));
+        setError(null);
+        try {
+            await komerceService.cancelOrder(order.order_number);
+            await fetchOrders(); // Refresh the list to show the 'cancelled' status
+        } catch (err: any) {
+            setError(`Failed to cancel order: ${err.message}`);
+        } finally {
+            setActionLoading(prev => ({ ...prev, [actionId]: false }));
         }
     };
 
@@ -416,64 +427,78 @@ const OrdersManager: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {orders.map(order => (
-                            <tr key={order.id} className={selectedOrders.has(order.order_number) ? 'bg-pink-50' : ''}>
-                                <td className="px-4 py-4">
-                                    <input type="checkbox" checked={selectedOrders.has(order.order_number)} onChange={() => handleSelectOrder(order.order_number)} className="h-4 w-4 text-pink-600 border-gray-300 rounded"/>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <button onClick={() => handleShowDetails(order)} disabled={!order.komerce_order_no} className="text-sm font-medium text-pink-600 hover:underline disabled:text-gray-500 disabled:no-underline">
-                                        {order.order_number}
-                                    </button>
-                                    <div className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-900">{order.customers?.first_name} {order.customers?.last_name}</div>
-                                    <div className="text-sm text-gray-500">{order.customers?.email}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Rp{order.total_amount.toLocaleString('id-ID')}</td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(order.status)}`}>
-                                        {order.status.replace('_', ' ')}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                                     {order.status === 'pending_payment' && (
-                                         <button onClick={() => handleVerifyPayment(order)} disabled={actionLoading[`check-${order.order_number}`]} className="bg-yellow-500 text-white px-2 py-1 rounded disabled:bg-yellow-300">
-                                            {actionLoading[`check-${order.order_number}`] ? 'Verifying...' : 'Verify'}
+                        {orders.map(order => {
+                            const isCancellable = order.status === 'paid' || order.status === 'processing';
+                            const cancelTooltip = isCancellable ? '' : `Cannot cancel order with status: ${order.status.replace('_', ' ')}`;
+
+                            return (
+                                <tr key={order.id} className={selectedOrders.has(order.order_number) ? 'bg-pink-50' : ''}>
+                                    <td className="px-4 py-4">
+                                        <input type="checkbox" checked={selectedOrders.has(order.order_number)} onChange={() => handleSelectOrder(order.order_number)} className="h-4 w-4 text-pink-600 border-gray-300 rounded"/>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <button onClick={() => handleShowDetails(order)} disabled={!order.komerce_order_no} className="text-sm font-medium text-pink-600 hover:underline disabled:text-gray-500 disabled:no-underline">
+                                            {order.order_number}
                                         </button>
-                                    )}
-                                    {order.status === 'paid' && (
-                                        <>
-                                            <button onClick={() => handleSubmitToKomerce(order)} disabled={actionLoading[`submit-${order.id}`]} className="bg-blue-500 text-white px-2 py-1 rounded disabled:bg-blue-300">
-                                                {actionLoading[`submit-${order.id}`] ? 'Submitting...' : 'Submit to Komerce'}
-                                            </button>
-                                            <button onClick={() => handleCancelOrder(order)} disabled={actionLoading[`cancel-${order.order_number}`]} className="bg-red-500 text-white px-2 py-1 rounded disabled:bg-red-300">
-                                                {actionLoading[`cancel-${order.order_number}`] ? 'Cancelling...' : 'Cancel'}
-                                            </button>
-                                        </>
-                                    )}
-                                    {order.status === 'processing' && (
-                                        <>
-                                            <button onClick={() => {
-                                                setSchedulingOrder(order);
-                                                setLatestCreationTimestamp(order.created_at);
-                                            }} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
-                                                {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
-                                            </button>
-                                            <button onClick={() => handleCancelOrder(order)} disabled={actionLoading[`cancel-${order.order_number}`]} className="bg-red-500 text-white px-2 py-1 rounded disabled:bg-red-300">
-                                                {actionLoading[`cancel-${order.order_number}`] ? 'Cancelling...' : 'Cancel'}
-                                            </button>
-                                        </>
-                                    )}
-                                     {(order.status === 'label_created' || order.status === 'shipped') && (
-                                        <button onClick={() => handlePrintWaybill([order.order_number])} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded disabled:bg-gray-300">
-                                            {actionLoading[`waybill-${order.order_number}`] ? 'Printing...' : 'Print Label'}
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
+                                        <div className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm text-gray-900">{order.customers?.first_name} {order.customers?.last_name}</div>
+                                        <div className="text-sm text-gray-500">{order.customers?.email}</div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Rp{order.total_amount.toLocaleString('id-ID')}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(order.status)}`}>
+                                            {order.status.replace('_', ' ')}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <div className="flex items-center flex-wrap gap-2">
+                                            {order.status === 'pending_payment' && (
+                                                <button onClick={() => handleVerifyPayment(order)} disabled={actionLoading[`check-${order.order_number}`]} className="bg-yellow-500 text-white px-2 py-1 rounded text-xs disabled:bg-yellow-300">
+                                                   {actionLoading[`check-${order.order_number}`] ? 'Verifying...' : 'Verify'}
+                                               </button>
+                                           )}
+                                           {order.status === 'paid' && (
+                                               <button onClick={() => handleSubmitToKomerce(order)} disabled={actionLoading[`submit-${order.id}`]} className="bg-blue-500 text-white px-2 py-1 rounded text-xs disabled:bg-blue-300">
+                                                   {actionLoading[`submit-${order.id}`] ? 'Submitting...' : 'Submit'}
+                                               </button>
+                                           )}
+                                           {order.status === 'processing' && (
+                                               <button onClick={() => { setSchedulingOrder(order); setLatestCreationTimestamp(order.created_at); }} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded text-xs disabled:bg-green-300">
+                                                   {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Pickup'}
+                                               </button>
+                                           )}
+                                           {(order.status === 'label_created' || order.status === 'shipped') && (
+                                               order.waybill_url ? (
+                                                   <a href={order.waybill_url} target="_blank" rel="noopener noreferrer" className="inline-block bg-indigo-500 text-white px-2 py-1 rounded text-xs hover:bg-indigo-600">
+                                                       Download
+                                                   </a>
+                                               ) : (
+                                                   <button onClick={() => handlePrintWaybill([order.order_number])} disabled={actionLoading[`waybill-${order.order_number}`]} className="bg-gray-500 text-white px-2 py-1 rounded text-xs disabled:bg-gray-300">
+                                                       {actionLoading[`waybill-${order.order_number}`] ? 'Printing...' : 'Print'}
+                                                   </button>
+                                               )
+                                           )}
+                                            <div className="relative group">
+                                                <button
+                                                    onClick={() => handleCancelOrder(order)}
+                                                    disabled={!isCancellable || actionLoading[`cancel-${order.order_number}`]}
+                                                    className="bg-red-500 text-white px-2 py-1 rounded text-xs disabled:bg-red-300 disabled:cursor-not-allowed"
+                                                >
+                                                    {actionLoading[`cancel-${order.order_number}`] ? '...' : 'Cancel'}
+                                                </button>
+                                                {!isCancellable && (
+                                                    <div className="absolute left-0 bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                                        {cancelTooltip}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )
+                        })}
                     </tbody>
                 </table>
                  {orders.length === 0 && <div className="text-center py-8 text-gray-500">No orders found.</div>}
@@ -655,7 +680,7 @@ const ProductForm: React.FC<{
             
             if (finalProductData.variantOptions.length > 0) {
                  finalProductData.variants = generatedVariants.map(genVar => {
-                     const storedVariant = product.variants.find(v => JSON.stringify(v.options) === JSON.stringify(genVar.options)) || {};
+                     const storedVariant = product.variants.find(v => JSON.stringify(v.options) === JSON.stringify(genVar.options));
                      return { ...storedVariant, ...genVar };
                  });
             } else {
@@ -679,14 +704,16 @@ const ProductForm: React.FC<{
                 <h3 className="text-lg font-semibold mb-3">Variants</h3>
                 { (hasOptions ? generatedVariants : product.variants.slice(0, 1)).map((variant, index) => {
                      const variantKey = JSON.stringify(variant.options);
-                     const storedVariant = product.variants.find(v => JSON.stringify(v.options) === variantKey) || {};
+                     // FIX: When a variant combination is new, `find` returns undefined.
+                     // The previous fallback `|| {}` caused a TypeScript error. This now uses optional chaining.
+                     const storedVariant = product.variants.find(v => JSON.stringify(v.options) === variantKey);
                     return (
                         <div key={variantKey} className="grid grid-cols-2 md:grid-cols-5 gap-3 p-3 border-b items-center">
                             <div className="col-span-2 md:col-span-1 font-medium">{hasOptions ? variant.name : 'Default Variant'}</div>
-                            <input type="number" placeholder="Price" value={storedVariant.price || ''} onChange={e => handleVariantChange(index, 'price', Number(e.target.value))} className="p-2 border rounded-md" required/>
-                            <input type="number" placeholder="Stock" value={storedVariant.stock || ''} onChange={e => handleVariantChange(index, 'stock', Number(e.target.value))} className="p-2 border rounded-md" required/>
-                            <input type="number" placeholder="Weight (g)" value={storedVariant.weight || ''} onChange={e => handleVariantChange(index, 'weight', Number(e.target.value))} className="p-2 border rounded-md" required/>
-                            <input type="text" placeholder="SKU" value={storedVariant.sku || ''} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="p-2 border rounded-md"/>
+                            <input type="number" placeholder="Price" value={storedVariant?.price || ''} onChange={e => handleVariantChange(index, 'price', Number(e.target.value))} className="p-2 border rounded-md" required/>
+                            <input type="number" placeholder="Stock" value={storedVariant?.stock || ''} onChange={e => handleVariantChange(index, 'stock', Number(e.target.value))} className="p-2 border rounded-md" required/>
+                            <input type="number" placeholder="Weight (g)" value={storedVariant?.weight || ''} onChange={e => handleVariantChange(index, 'weight', Number(e.target.value))} className="p-2 border rounded-md" required/>
+                            <input type="text" placeholder="SKU" value={storedVariant?.sku || ''} onChange={e => handleVariantChange(index, 'sku', e.target.value)} className="p-2 border rounded-md"/>
                         </div>
                     );
                 })}

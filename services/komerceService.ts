@@ -1,14 +1,37 @@
 // services/komerceService.ts
-import { supabase } from './supabase';
+import { supabase, supabaseUrl } from './supabase';
 import type { KomerceOrderDetail } from '../types';
 
+// This is a robust helper that uses a direct fetch call.
+// It provides better error handling than the standard supabase.functions.invoke().
 const invokeFunction = async <T = any>(functionName: string, body?: object): Promise<T> => {
-    const { data, error } = await supabase.functions.invoke(functionName, { body });
-    if (error) {
-        const errorMessage = error.context?.error_cause?.error || `Function '${functionName}' failed: ${error.message}`;
-        throw new Error(errorMessage);
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.access_token) {
+        throw new Error('User not authenticated.');
     }
-    return data;
+    
+    const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+    const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+        // Try to parse a more specific error from the function's JSON response
+        try {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Edge function '${functionName}' returned status ${response.status}.`);
+        } catch (e) {
+            // If the response isn't JSON, fall back to the status text
+            throw new Error(`Edge function '${functionName}' returned an error: ${response.statusText}`);
+        }
+    }
+    return response.json();
 };
 
 export const komerceService = {
@@ -30,21 +53,36 @@ export const komerceService = {
 
   /**
    * Fetches the waybill (shipping label) for an order from Komerce.
-   * Now accepts an array of order numbers for bulk printing.
-   * The function returns the raw PDF blob.
+   * This is a special case that uses fetch directly to handle a PDF blob response.
    */
   async printWaybill(orderNos: string[]): Promise<Blob> {
-      const { data, error } = await supabase.functions.invoke('print-waybill', {
-        body: { orderNos },
-        responseType: 'blob'
-      });
-
-      if (error) {
-          const errorMessage = error.context?.error_cause?.error || `Failed to invoke 'print-waybill': ${error.message}`;
-          throw new Error(errorMessage);
+      const functionName = 'print-waybill';
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+          throw new Error('User not authenticated for waybill printing.');
       }
       
-      return data;
+      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+      const response = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ orderNos }),
+      });
+
+      if (!response.ok) {
+          try {
+              const errorData = await response.json();
+              throw new Error(errorData.error || `Failed to invoke 'print-waybill'.`);
+          } catch(e) {
+               throw new Error(`Failed to invoke 'print-waybill': ${response.statusText}`);
+          }
+      }
+      
+      return response.blob();
   },
 
   /**
@@ -55,9 +93,7 @@ export const komerceService = {
   },
   
   /**
-   * Cancels an order.
-   * If the order exists in Komerce, it will be cancelled there first.
-   * The order status in our DB will be set to 'cancelled'.
+   * Cancels an order by calling the single, consolidated 'cancel-order' function.
    */
   async cancelOrder(orderNo: string): Promise<any> {
     return invokeFunction('cancel-order', { orderNo });

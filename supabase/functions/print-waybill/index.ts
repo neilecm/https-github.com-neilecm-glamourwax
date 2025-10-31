@@ -7,7 +7,6 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { decode } from "https://deno.land/std@0.203.0/encoding/base64.ts";
 
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -15,6 +14,9 @@ const corsHeaders = {
 };
 
 const KOMERCE_API_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/print-label';
+
+// Ten years in seconds for the signed URL expiry
+const SIGNED_URL_EXPIRY = 60 * 60 * 24 * 365 * 10; 
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
@@ -33,41 +35,50 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // If only one order, check for cached waybill first
-    if (orderNos.length === 1) {
-        const { data: order, error: fetchError } = await supabaseAdmin
-            .from('orders')
-            .select('waybill_url')
-            .eq('order_number', orderNos[0])
-            .single();
-        
-        if (fetchError) throw new Error(`DB Error (Fetch Order): ${fetchError.message}`);
-
-        if (order && order.waybill_url) {
-            const response = await fetch(order.waybill_url);
-            if (!response.ok) throw new Error("Failed to fetch cached waybill from storage.");
-            const pdfBlob = await response.blob();
-            return new Response(pdfBlob, {
-                headers: { ...corsHeaders, 'Content-Type': 'application/pdf' },
-                status: 200,
-            });
-        }
-    }
-
-    // --- Fetch Komerce order numbers for all requested internal numbers ---
-    const { data: orders, error: fetchAllError } = await supabaseAdmin
+    // --- Step 1: Fetch order details from DB ---
+    const { data: orders, error: fetchOrdersError } = await supabaseAdmin
         .from('orders')
-        .select('order_number, komerce_order_no')
+        .select('order_number, komerce_order_no, waybill_url') // Also fetch waybill_url
         .in('order_number', orderNos);
 
-    if (fetchAllError) throw new Error(`DB Error (Fetch Komerce Nos): ${fetchAllError.message}`);
+    if (fetchOrdersError) {
+        throw new Error(`DB Error fetching order details: ${fetchOrdersError.message}`);
+    }
+    if (!orders || orders.length === 0) {
+        throw new Error('Could not find any of the specified orders in the database.');
+    }
 
-    const komerceOrderNos = orders?.map(o => o.komerce_order_no).filter(Boolean);
-    if (!komerceOrderNos || komerceOrderNos.length === 0) {
-        throw new Error("No valid Komerce order numbers found for the provided orders.");
+    // --- Step 2: Attempt to serve from cache for single order requests ---
+    if (orders.length === 1) {
+        const order = orders[0];
+        if (order.waybill_url) {
+            try {
+                console.log(`Attempting to fetch cached waybill from URL: ${order.waybill_url}`);
+                const cacheResponse = await fetch(order.waybill_url);
+                if (!cacheResponse.ok) {
+                    // Throw an error to trigger the fallback logic if the URL is expired/invalid
+                    throw new Error(`Failed to fetch from cached URL, status: ${cacheResponse.status}`);
+                }
+                const pdfBlob = await cacheResponse.blob();
+                console.log(`Successfully served cached waybill for ${order.order_number} from URL.`);
+                return new Response(pdfBlob, {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/pdf' },
+                    status: 200,
+                });
+            } catch (e) {
+                 console.error(`Cache miss for order ${order.order_number} (URL fetch failed): ${e.message}. Will fetch a new one from Komerce.`);
+                 // Fall-through to fetch a new one from the API.
+            }
+        }
     }
     
-    // --- Call Komerce API with parameters as form-urlencoded ---
+    // --- Step 3: Fetch new label from Komerce API if cache fails or for bulk requests ---
+    console.log("Proceeding to fetch new label(s) from Komerce API.");
+    const komerceOrderNos = orders.map(o => o.komerce_order_no).filter(Boolean);
+    if (komerceOrderNos.length !== orders.length) {
+        throw new Error("Some requested orders have not been submitted to Komerce yet.");
+    }
+    
     const formData = new URLSearchParams();
     formData.append('page', 'page_5');
     formData.append('order_no', komerceOrderNos.join(','));
@@ -92,29 +103,36 @@ serve(async (req) => {
 
     const pdfData = decode(base64Pdf);
     
-    // --- If it's a single waybill, save it to storage and update the DB ---
-    if (orderNos.length === 1 && orders?.[0]) {
+    // --- Step 4: Cache the label if it's a single request ---
+    if (orders.length === 1) {
         const order = orders[0];
-        const filePath = `${order.komerce_order_no}-${Date.now()}.pdf`;
+        const filePath = `${order.komerce_order_no}.pdf`; // Consistent filename.
         
         const { error: uploadError } = await supabaseAdmin.storage
             .from('waybills')
-            .upload(filePath, pdfData, { contentType: 'application/pdf' });
+            .upload(filePath, pdfData, { contentType: 'application/pdf', upsert: true });
         
         if (uploadError) {
-            console.error("Storage Error:", uploadError.message);
+            console.error("Storage Upload Error:", uploadError.message);
         } else {
-            const { data: { publicUrl } } = supabaseAdmin.storage.from('waybills').getPublicUrl(filePath);
-            if (publicUrl) {
+            // Generate a long-lived signed URL to store
+            const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
+                .from('waybills')
+                .createSignedUrl(filePath, SIGNED_URL_EXPIRY);
+
+            if (signedUrlError) {
+                console.error("Signed URL Creation Error:", signedUrlError.message);
+            } else if (signedUrlData?.signedUrl) {
                 const { error: dbUpdateError } = await supabaseAdmin
                     .from('orders')
-                    .update({ waybill_url: publicUrl })
+                    .update({ waybill_url: signedUrlData.signedUrl })
                     .eq('order_number', order.order_number);
                 if (dbUpdateError) console.error("DB Update Error:", dbUpdateError.message);
             }
         }
     }
 
+    // --- Step 5: Return the PDF data ---
     return new Response(pdfData, {
         headers: { ...corsHeaders, 'Content-Type': 'application/pdf' },
         status: 200,
