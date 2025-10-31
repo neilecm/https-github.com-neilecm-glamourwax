@@ -56,7 +56,7 @@ serve(async (req) => {
       const komercePayload = { order_no: order.komerce_order_no };
 
       const komerceResponse = await fetch(KOMERCE_CANCEL_URL, {
-        method: 'PUT',
+        method: 'POST', // FIX: Changed from PUT to POST to match Komerce API conventions
         headers: {
           'x-api-key': KOMERCE_API_KEY,
           'Content-Type': 'application/json',
