@@ -85,60 +85,45 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error('Error signing out:', error.message);
     }
   }, []);
-
+  
   useEffect(() => {
-    const processSession = async (currentSession: Session | null) => {
-      try {
-        if (currentSession) {
-          setSession(currentSession);
-          const currentUser = currentSession.user;
-          setUser(currentUser);
-          const isAnon = currentUser.is_anonymous;
-          setIsAnonymous(isAnon);
+    setLoading(true);
 
-          if (isAnon) {
-            setProfile(null);
-            setIsAdmin(false);
-          } else {
-            await fetchProfile(currentUser);
-            await checkAdminStatus(currentUser.email);
-          }
-          // Only set loading to false after a session has been successfully processed.
-          setLoading(false);
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setAuthEvent(_event);
+        setSession(session);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+
+        if (currentUser && !currentUser.is_anonymous) {
+          // A real user is logged in.
+          setIsAnonymous(false);
+          await fetchProfile(currentUser);
+          await checkAdminStatus(currentUser.email);
+          setLoading(false); // Stop loading after user data is fetched.
+        } else if (currentUser && currentUser.is_anonymous) {
+          // An anonymous session is active.
+          setIsAnonymous(true);
+          setProfile(null);
+          setIsAdmin(false);
+          setLoading(false); // Stop loading, guest session is ready.
         } else {
-          // No session, get an anonymous one.
-          // We will NOT set loading to false here; we'll wait for onAuthStateChange to fire again
-          // with the new anonymous session, which will then call this function and complete the flow.
+          // No session at all, this happens on initial load and after sign out.
+          setIsAnonymous(true);
+          setProfile(null);
+          setIsAdmin(false);
+          // Attempt to get an anonymous session.
           const { error: anonError } = await supabase.auth.signInAnonymously();
           if (anonError) {
-            // If anon sign-in fails, we must stop loading to prevent a freeze.
-            console.error("Failed to sign in anonymously:", anonError);
+            console.error("Critical: Failed to sign in anonymously.", anonError);
+            // If we can't get any session, we have to stop loading to prevent a freeze.
             setLoading(false);
           }
+          // If anonymous sign-in is successful, the listener will fire AGAIN with the
+          // new anonymous session, and the logic in the second 'if' block will run,
+          // eventually setting loading to false. We do nothing here to prevent a race condition.
         }
-      } catch (e: any) {
-        console.error("Error processing session:", e.message);
-        // On any error, clear the state and stop loading.
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setIsAdmin(false);
-        setIsAnonymous(false);
-        setLoading(false);
-      }
-    };
-
-    // Initial check on app load
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      processSession(session);
-    });
-    
-    // Listen for all auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        setLoading(true); // Always start loading on a state change
-        setAuthEvent(_event);
-        processSession(newSession);
       }
     );
 
@@ -146,6 +131,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       authListener?.subscription.unsubscribe();
     };
   }, [fetchProfile, checkAdminStatus]);
+
 
   const value = useMemo(() => ({
     session,
