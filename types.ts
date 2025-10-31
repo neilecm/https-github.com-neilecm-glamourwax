@@ -1,5 +1,47 @@
 // types.ts
 
+// --- Navigation Types ---
+
+// Define the different views the app can have
+export enum View {
+  HOME,
+  PRODUCT_DETAIL,
+  CART,
+  CHECKOUT,
+  ORDER_SUCCESS,
+  ORDER_PENDING,
+  ORDER_FAILED,
+  AUTH,
+  ADMIN,
+  ACCOUNT,
+  WISHLIST,
+  CONTACT,
+  TUTORIAL,
+  ABOUT_US,
+  REVIEWS,
+}
+
+// Define the shape of the view state
+export type AppView =
+  | { name: View.HOME }
+  | { name: View.PRODUCT_DETAIL; product: Product }
+  | { name: View.CART }
+  | { name: View.CHECKOUT }
+  | { name: View.ORDER_SUCCESS; orderId: string }
+  | { name: View.ORDER_PENDING; orderId: string }
+  | { name: View.ORDER_FAILED; message: string }
+  | { name: View.AUTH }
+  | { name: View.ADMIN }
+  | { name: View.ACCOUNT }
+  | { name: View.WISHLIST }
+  | { name: View.CONTACT }
+  | { name: View.TUTORIAL }
+  | { name: View.ABOUT_US }
+  | { name: View.REVIEWS };
+
+// --- End Navigation Types ---
+
+
 export interface ProductVariant {
   id: string;
   productId: string;

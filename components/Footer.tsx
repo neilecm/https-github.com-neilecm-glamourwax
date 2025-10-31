@@ -1,5 +1,6 @@
 import React from 'react';
-import { AppView, View } from '../App';
+import { View } from '../types';
+import type { AppView } from '../types';
 
 interface FooterProps {
   onNavigate: (view: AppView) => void;

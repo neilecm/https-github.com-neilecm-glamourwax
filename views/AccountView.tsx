@@ -1,11 +1,8 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabaseService } from '../services/supabaseService';
 import Spinner from '../components/Spinner';
-import type { FullOrder } from '../types';
-import type { AppView } from '../App';
+import type { FullOrder, AppView } from '../types';
 
 interface AccountViewProps {
   onNavigate: (view: AppView) => void;

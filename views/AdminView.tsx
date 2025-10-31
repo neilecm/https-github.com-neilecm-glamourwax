@@ -84,10 +84,11 @@ const getStatusBadgeClass = (status: FullOrder['status']) => {
 const ArrangePickupModal: React.FC<{
     item: FullOrder | null;
     itemCount: number;
+    latestCreationTimestamp: string | null;
     onConfirm: (details: { pickupDate: string; pickupTime: string; pickupVehicle: 'Motor' | 'Mobil' | 'Truk'; }) => void;
     onClose: () => void;
     isSubmitting: boolean;
-}> = ({ item, itemCount, onConfirm, onClose, isSubmitting }) => {
+}> = ({ item, itemCount, latestCreationTimestamp, onConfirm, onClose, isSubmitting }) => {
     const today = new Date().toISOString().split('T')[0];
     const [pickupDate, setPickupDate] = useState(today);
     const [pickupTime, setPickupTime] = useState('');
@@ -97,40 +98,48 @@ const ArrangePickupModal: React.FC<{
     useEffect(() => {
         const generateTimes = () => {
             const times: string[] = [];
-            for (let hour = 8; hour <= 20; hour++) {
-                for (let minute = 0; minute < 60; minute += 30) {
-                    if (hour === 20 && minute > 0) continue;
-                    const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-                    times.push(time);
-                }
+            // Generate hourly slots from 09:00 to 20:00
+            for (let hour = 9; hour <= 20; hour++) {
+                times.push(`${String(hour).padStart(2, '0')}:00`);
             }
-            const now = new Date();
-            const minPickupTime = new Date(now.getTime() + 90 * 60 * 1000);
-            const selectedDateObj = new Date(pickupDate);
-            const isToday = selectedDateObj.toISOString().split('T')[0] === now.toISOString().split('T')[0];
-
+    
+            const nowUtc = new Date();
+            const orderCreationTimeUtc = latestCreationTimestamp ? new Date(latestCreationTimestamp) : new Date(0);
+            
+            // Base time for calculation is the later of now or the latest order creation time
+            const baseTimeUtc = nowUtc > orderCreationTimeUtc ? nowUtc : orderCreationTimeUtc;
+            
+            const minPickupDateTimeUtc = new Date(baseTimeUtc.getTime() + 90 * 60 * 1000);
+    
+            // Use UTC for date comparison to avoid timezone issues
+            const selectedDateUtc = new Date(pickupDate + 'T00:00:00Z');
+            const todayUtc = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00Z');
+            const isToday = selectedDateUtc.getTime() === todayUtc.getTime();
+            
+            let availableSlots: string[] = [];
+    
             if (isToday) {
-                const filteredTimes = times.filter(time => {
-                    const [hour, minute] = time.split(':');
-                    const slotTime = new Date(pickupDate);
-                    slotTime.setHours(parseInt(hour), parseInt(minute), 0, 0);
-                    return slotTime > minPickupTime;
+                availableSlots = times.filter(time => {
+                    // Construct the pickup slot time assuming WITA (UTC+8) and compare with the minimum required UTC time
+                    const slotDateTimeUtc = new Date(`${pickupDate}T${time}:00.000+08:00`);
+                    return slotDateTimeUtc >= minPickupDateTimeUtc;
                 });
-                setAvailableTimes(filteredTimes);
-                if (filteredTimes.length > 0 && !filteredTimes.includes(pickupTime)) {
-                    setPickupTime(filteredTimes[0]);
-                } else if (filteredTimes.length === 0) {
-                    setPickupTime('');
-                }
-            } else {
-                setAvailableTimes(times);
-                 if (times.length > 0 && !times.includes(pickupTime)) {
-                    setPickupTime(times[0]);
-                }
+            } else if (selectedDateUtc > todayUtc) {
+                // For any future date, all slots are available
+                availableSlots = times;
+            }
+    
+            setAvailableTimes(availableSlots);
+    
+            // Automatically select the first available slot if none is selected or the current one is invalid
+            if (availableSlots.length > 0 && !availableSlots.includes(pickupTime)) {
+                setPickupTime(availableSlots[0]);
+            } else if (availableSlots.length === 0) {
+                setPickupTime(''); // No slots available today
             }
         };
         generateTimes();
-    }, [pickupDate]);
+    }, [pickupDate, latestCreationTimestamp]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -153,7 +162,7 @@ const ArrangePickupModal: React.FC<{
                             <input type="date" id="pickupDate" value={pickupDate} min={today} onChange={e => setPickupDate(e.target.value)} required className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm" />
                         </div>
                         <div>
-                             <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700">Pickup Time (WITA)</label>
+                             <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700">Pickup Timeslot (WITA)</label>
                              <select id="pickupTime" value={pickupTime} onChange={e => setPickupTime(e.target.value)} required disabled={availableTimes.length === 0} className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white">
                                 {availableTimes.length > 0 ? (
                                     availableTimes.map(time => <option key={time} value={time}>{time}</option>)
@@ -199,6 +208,7 @@ const OrdersManager: React.FC = () => {
     const [schedulingOrder, setSchedulingOrder] = useState<FullOrder | null>(null);
     const [isSchedulingBulk, setIsSchedulingBulk] = useState(false);
     const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+    const [latestCreationTimestamp, setLatestCreationTimestamp] = useState<string | null>(null);
 
 
     const fetchOrders = useCallback(async () => {
@@ -357,7 +367,8 @@ const OrdersManager: React.FC = () => {
                 <ArrangePickupModal
                     item={schedulingOrder}
                     itemCount={selectedOrders.size}
-                    onClose={() => { setSchedulingOrder(null); setIsSchedulingBulk(false); }}
+                    latestCreationTimestamp={latestCreationTimestamp}
+                    onClose={() => { setSchedulingOrder(null); setIsSchedulingBulk(false); setLatestCreationTimestamp(null); }}
                     isSubmitting={!!actionLoading[isSchedulingBulk ? 'bulk-pickup' : `pickup-${schedulingOrder?.order_number}`]}
                     onConfirm={handleConfirmPickup}
                 />
@@ -370,7 +381,16 @@ const OrdersManager: React.FC = () => {
             {selectedOrders.size > 0 && (
                 <div className="bg-gray-100 p-3 rounded-md mb-4 flex items-center gap-4 border">
                     <span className="font-semibold text-sm">{selectedOrders.size} selected</span>
-                    <button onClick={() => setIsSchedulingBulk(true)} disabled={!canBulkPickup || actionLoading['bulk-pickup']} className="text-sm bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 disabled:bg-green-300 disabled:cursor-not-allowed">
+                    <button onClick={() => {
+                        const selected = orders.filter(o => selectedOrders.has(o.order_number));
+                        if (selected.length > 0) {
+                            const latestTimestamp = selected.reduce((latest, order) => {
+                                return order.created_at > latest ? order.created_at : latest;
+                            }, '1970-01-01T00:00:00Z');
+                            setLatestCreationTimestamp(latestTimestamp);
+                        }
+                        setIsSchedulingBulk(true);
+                    }} disabled={!canBulkPickup || actionLoading['bulk-pickup']} className="text-sm bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 disabled:bg-green-300 disabled:cursor-not-allowed">
                         {actionLoading['bulk-pickup'] ? 'Arranging...' : 'Bulk Arrange Pickup'}
                     </button>
                     <button onClick={() => handlePrintWaybill(Array.from(selectedOrders))} disabled={!canBulkPrint || actionLoading[`waybill-${Array.from(selectedOrders).join('-')}`]} className="text-sm bg-gray-500 text-white px-3 py-1 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:cursor-not-allowed">
@@ -408,8 +428,8 @@ const OrdersManager: React.FC = () => {
                                     <div className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-900">{order.customers.first_name} {order.customers.last_name}</div>
-                                    <div className="text-sm text-gray-500">{order.customers.email}</div>
+                                    <div className="text-sm text-gray-900">{order.customers?.first_name} {order.customers?.last_name}</div>
+                                    <div className="text-sm text-gray-500">{order.customers?.email}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Rp{order.total_amount.toLocaleString('id-ID')}</td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -435,7 +455,10 @@ const OrdersManager: React.FC = () => {
                                     )}
                                     {order.status === 'processing' && (
                                         <>
-                                            <button onClick={() => setSchedulingOrder(order)} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
+                                            <button onClick={() => {
+                                                setSchedulingOrder(order);
+                                                setLatestCreationTimestamp(order.created_at);
+                                            }} disabled={actionLoading[`pickup-${order.order_number}`]} className="bg-green-500 text-white px-2 py-1 rounded disabled:bg-green-300">
                                                 {actionLoading[`pickup-${order.order_number}`] ? 'Arranging...' : 'Arrange Pickup'}
                                             </button>
                                             <button onClick={() => handleCancelOrder(order)} disabled={actionLoading[`cancel-${order.order_number}`]} className="bg-red-500 text-white px-2 py-1 rounded disabled:bg-red-300">

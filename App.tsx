@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
@@ -22,44 +21,9 @@ import AboutUsView from './views/AboutUsView';
 import ReviewsView from './views/ReviewsView';
 import AccountView from './views/AccountView';
 
-import type { Product } from './types';
+import { View } from './types';
+import type { AppView } from './types';
 
-// Define the different views the app can have
-export enum View {
-  HOME,
-  PRODUCT_DETAIL,
-  CART,
-  CHECKOUT,
-  ORDER_SUCCESS,
-  ORDER_PENDING,
-  ORDER_FAILED,
-  AUTH,
-  ADMIN,
-  ACCOUNT,
-  WISHLIST,
-  CONTACT,
-  TUTORIAL,
-  ABOUT_US,
-  REVIEWS,
-}
-
-// Define the shape of the view state
-export type AppView =
-  | { name: View.HOME }
-  | { name: View.PRODUCT_DETAIL; product: Product }
-  | { name: View.CART }
-  | { name: View.CHECKOUT }
-  | { name: View.ORDER_SUCCESS; orderId: string }
-  | { name: View.ORDER_PENDING; orderId: string }
-  | { name: View.ORDER_FAILED; message: string }
-  | { name: View.AUTH }
-  | { name: View.ADMIN }
-  | { name: View.ACCOUNT }
-  | { name: View.WISHLIST }
-  | { name: View.CONTACT }
-  | { name: View.TUTORIAL }
-  | { name: View.ABOUT_US }
-  | { name: View.REVIEWS };
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>({ name: View.HOME });

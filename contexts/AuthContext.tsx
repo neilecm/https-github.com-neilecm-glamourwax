@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useMemo, useRef } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import type { Profile } from '../types';
@@ -24,10 +24,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [authEvent, setAuthEvent] = useState<AuthChangeEvent | null>(null);
-  
-  // Use a ref for the sign-out flag to prevent the useEffect from re-running.
-  // This makes the auth listener much more stable.
-  const explicitlySigningOut = useRef(false);
 
   const fetchProfile = useCallback(async (user: User) => {
     try {
@@ -36,12 +32,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .select('*')
         .eq('id', user.id)
         .single();
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116: no rows found
+      if (error && error.code !== 'PGRST116') throw error;
 
       if (data) {
         setProfile(data);
       } else if (!user.is_anonymous) {
-        console.log(`Profile for user ${user.id} not found. Attempting client-side creation as a fallback.`);
+        console.log(`Profile for user ${user.id} not found. Creating fallback profile.`);
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
           .insert({
@@ -54,15 +50,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           .single();
 
         if (createError) {
-          console.warn(
-            `Client-side profile creation failed: "${createError.message}". ` +
-            `This is likely due to a restrictive Row Level Security (RLS) policy. ` +
-            `To fix this permanently, ensure you have a DB trigger that creates a profile for new users, ` +
-            `or adjust your RLS policy to allow users to insert their own profile.`
-          );
+          console.warn(`Client-side profile creation failed: "${createError.message}". This can happen if RLS policies are too restrictive or a DB trigger is missing.`);
           setProfile(null);
         } else {
-          console.log(`Successfully created profile for user ${user.id} via client-side fallback.`);
           setProfile(newProfile);
         }
       } else {
@@ -90,53 +80,72 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const signOut = useCallback(async () => {
-    explicitlySigningOut.current = true; // Set ref before calling signOut
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error.message);
-      explicitlySigningOut.current = false; // Reset ref on error
     }
   }, []);
 
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      setAuthEvent(_event);
+    const processSession = async (currentSession: Session | null) => {
+      try {
+        if (currentSession) {
+          setSession(currentSession);
+          const currentUser = currentSession.user;
+          setUser(currentUser);
+          const isAnon = currentUser.is_anonymous;
+          setIsAnonymous(isAnon);
 
-      if (newSession) {
-        setSession(newSession);
-        const currentUser = newSession.user;
-        setUser(currentUser);
-        setIsAnonymous(currentUser.is_anonymous);
-        await fetchProfile(currentUser);
-        await checkAdminStatus(currentUser.email);
-        explicitlySigningOut.current = false; // A new session is active, reset the flag.
-        setLoading(false);
-      } else { // newSession is null
-        // Create a new anonymous session ONLY if this is the first load OR if the user explicitly clicked sign out.
-        if (_event === 'INITIAL_SESSION' || explicitlySigningOut.current) {
-          explicitlySigningOut.current = false; // Reset ref
-          const { error } = await supabase.auth.signInAnonymously();
-          if (error) {
-            console.error("Critical failure: Could not sign in anonymously.", error);
-            setLoading(false); // Stop loading if guest session fails
+          if (isAnon) {
+            setProfile(null);
+            setIsAdmin(false);
+          } else {
+            await fetchProfile(currentUser);
+            await checkAdminStatus(currentUser.email);
           }
-          // The listener will re-fire with the new anonymous session, no need to set state here.
-        } else {
-          // For other SIGNED_OUT events (like during a login flow), just clear the state and wait for the subsequent SIGNED_IN event.
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setIsAdmin(false);
-          setIsAnonymous(false);
+          // Only set loading to false after a session has been successfully processed.
           setLoading(false);
+        } else {
+          // No session, get an anonymous one.
+          // We will NOT set loading to false here; we'll wait for onAuthStateChange to fire again
+          // with the new anonymous session, which will then call this function and complete the flow.
+          const { error: anonError } = await supabase.auth.signInAnonymously();
+          if (anonError) {
+            // If anon sign-in fails, we must stop loading to prevent a freeze.
+            console.error("Failed to sign in anonymously:", anonError);
+            setLoading(false);
+          }
         }
+      } catch (e: any) {
+        console.error("Error processing session:", e.message);
+        // On any error, clear the state and stop loading.
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setIsAdmin(false);
+        setIsAnonymous(false);
+        setLoading(false);
       }
+    };
+
+    // Initial check on app load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      processSession(session);
     });
+    
+    // Listen for all auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (_event, newSession) => {
+        setLoading(true); // Always start loading on a state change
+        setAuthEvent(_event);
+        processSession(newSession);
+      }
+    );
 
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, [fetchProfile, checkAdminStatus]); // Dependencies are now stable, effect runs only once.
+  }, [fetchProfile, checkAdminStatus]);
 
   const value = useMemo(() => ({
     session,

@@ -24,22 +24,6 @@ serve(async (req) => {
       throw new Error("orderNos (array), pickupDate, pickupTime, and pickupVehicle are required.");
     }
     
-    // --- Time Validation ---
-    const requestedPickupDateTime = new Date(`${pickupDate}T${pickupTime}:00.000+08:00`);
-    const nowUtc = new Date();
-    const minPickupDateTimeUtc = new Date(nowUtc.getTime() + 90 * 60 * 1000);
-
-    if (requestedPickupDateTime < minPickupDateTimeUtc) {
-      const witaOffsetMilliseconds = 8 * 60 * 60 * 1000;
-      const minPickupDateTimeInWita = new Date(minPickupDateTimeUtc.getTime() + witaOffsetMilliseconds);
-      const hours = minPickupDateTimeInWita.getUTCHours().toString().padStart(2, '0');
-      const minutes = minPickupDateTimeInWita.getUTCMinutes().toString().padStart(2, '0');
-      const formattedMinTime = `${hours}:${minutes}`;
-      throw new Error(
-        `Pickup time must be at least 90 minutes in the future. Please select a time after ${formattedMinTime} WITA.`
-      );
-    }
-    
     const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
     if (!KOMERCE_API_KEY) throw new Error("KOMERCE_API_KEY secret not set.");
     
@@ -48,30 +32,56 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // --- 1. Get Komerce order numbers for all provided internal order numbers ---
+    // --- 1. Get Komerce order numbers and creation times for all provided internal order numbers ---
     const { data: orders, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('order_number, komerce_order_no')
+      .select('order_number, komerce_order_no, created_at')
       .in('order_number', orderNos);
 
     if (fetchError) throw new Error(`DB Error (Fetch Orders): ${fetchError.message}`);
-    const foundKomerceNos = orders?.map(o => o.komerce_order_no).filter(Boolean) || [];
+    if (!orders || orders.length === 0) {
+      throw new Error(`Could not find any of the specified orders.`);
+    }
+    
+    // --- 2. Time Validation (must be 90 mins after NOW or ORDER CREATION, whichever is later) ---
+    const nowUtc = new Date();
+    
+    // Find the latest creation time among all orders being scheduled
+    const latestCreationTimeUtc = orders.reduce((latest, order) => {
+        const orderTime = new Date(order.created_at);
+        return orderTime > latest ? orderTime : latest;
+    }, new Date(0)); // Start with a very old date
+
+    // The minimum time is based on the later of now OR the latest order creation time
+    const baseTimeForCalculation = nowUtc > latestCreationTimeUtc ? nowUtc : latestCreationTimeUtc;
+    const minPickupDateTimeUtc = new Date(baseTimeForCalculation.getTime() + 90 * 60 * 1000);
+    const requestedPickupDateTime = new Date(`${pickupDate}T${pickupTime}:00.000+08:00`); // Assuming pickup time is WITA (UTC+8)
+
+    if (requestedPickupDateTime < minPickupDateTimeUtc) {
+      const witaOffsetMilliseconds = 8 * 60 * 60 * 1000;
+      const minPickupDateTimeInWita = new Date(minPickupDateTimeUtc.getTime() + witaOffsetMilliseconds);
+      const hours = minPickupDateTimeInWita.getUTCHours().toString().padStart(2, '0');
+      const minutes = minPickupDateTimeInWita.getUTCMinutes().toString().padStart(2, '0');
+      const formattedMinTime = `${hours}:${minutes}`;
+      throw new Error(
+        `Pickup time must be at least 90 minutes from now or the order creation time. Please select a time after ${formattedMinTime} WITA.`
+      );
+    }
+    
+    // --- 3. Prepare payload for Komerce API ---
+    const foundKomerceNos = orders.map(o => o.komerce_order_no).filter(Boolean);
     if (foundKomerceNos.length !== orderNos.length) {
       throw new Error(`Could not find Komerce order numbers for all requested orders. Please ensure all have been submitted to Komerce.`);
     }
     
-    // --- 2. Prepare payload for Komerce API ---
-    // FIX: Append seconds to the time to match the HH:mm:ss format.
-    const pickupTimeWithSeconds = `${pickupTime}:00`;
-
     const komercePayload = {
       pickup_date: pickupDate,
-      pickup_time: pickupTimeWithSeconds,
-      pickup_vehicle: pickupVehicle,
+      pickup_time: pickupTime, // Format as HH:MM
+      pickup_vehicle: pickupVehicle, // Use the plain string "Motor", "Mobil", or "Truk"
       orders: foundKomerceNos.map(komerce_no => ({ order_no: komerce_no })),
     };
 
-    // --- 3. Call Komerce API ---
+    // --- 4. Call Komerce API ---
     const komerceResponse = await fetch(KOMERCE_API_URL, {
       method: 'POST',
       headers: { 'x-api-key': KOMERCE_API_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -83,13 +93,13 @@ serve(async (req) => {
       throw new Error(`[Komerce API] ${komerceJson.meta?.message || 'Failed to arrange pickup.'}`);
     }
     
-    // --- 4. Process response and update orders ---
+    // --- 5. Process response and update orders ---
     const pickupResults = komerceJson.data || [];
     const updatePromises: Promise<any>[] = [];
     const failedPickups: string[] = [];
 
     for (const result of pickupResults) {
-      const internalOrder = orders?.find(o => o.komerce_order_no === result.order_no);
+      const internalOrder = orders.find(o => o.komerce_order_no === result.order_no);
       if (!internalOrder) continue;
 
       if (result.status === 'success' && result.awb) {
