@@ -2,36 +2,41 @@
 import { supabase, supabaseUrl } from './supabase';
 import type { KomerceOrderDetail } from '../types';
 
-// This is a robust helper that uses a direct fetch call.
-// It provides better error handling than the standard supabase.functions.invoke().
 const invokeFunction = async <T = any>(functionName: string, body?: object): Promise<T> => {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !session?.access_token) {
-        throw new Error('User not authenticated.');
-    }
-    
-    const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) {
+    const err: any = new Error('User not authenticated.');
+    err.code = 401;
+    throw err;
+  }
 
-    const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-        },
-        body: body ? JSON.stringify(body) : undefined,
-    });
+  const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+  const res = await fetch(functionUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
 
-    if (!response.ok) {
-        // Try to parse a more specific error from the function's JSON response
-        try {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Edge function '${functionName}' returned status ${response.status}.`);
-        } catch (e) {
-            // If the response isn't JSON, fall back to the status text
-            throw new Error(`Edge function '${functionName}' returned an error: ${response.statusText}`);
-        }
+  if (!res.ok) {
+    const raw = await res.text();
+    try {
+      const ed = JSON.parse(raw);
+      const err: any = new Error(ed.error || res.statusText);
+      err.code = ed.status ?? res.status;
+      err.details = ed;           // includes provider info from the edge function
+      throw err;
+    } catch {
+      const err: any = new Error(res.statusText);
+      err.code = res.status;
+      err.raw = raw;
+      throw err;
     }
-    return response.json();
+  }
+
+  return res.json();
 };
 
 export const komerceService = {
@@ -97,5 +102,10 @@ export const komerceService = {
    */
   async cancelOrder(orderNo: string): Promise<any> {
     return invokeFunction('cancel-order', { orderNo });
+  },
+
+  // New explicit helper to avoid accidentally passing CB-…:
+  async cancelOrderByKomerceId(komerceOrderNo: string): Promise<any> {
+    return invokeFunction('cancel-order', { orderNo: komerceOrderNo });
   },
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, ChangeEvent, FormEvent, Fragment, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { komerceService } from '../services/komerceService';
+import { supabase } from '../services/supabase';
 import type { FullOrder, KomerceOrderDetail, Product, ProductVariant, ProductVariantOption, ProductVariantOptionValue } from '../types';
 import Spinner from '../components/Spinner';
 import MarketingView from './MarketingView';
@@ -202,6 +203,8 @@ const OrdersManager: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<ActionLoadingState>({});
+    const [loadingId, setLoadingId] = useState<string | number | null>(null);
+    const [rowMsg, setRowMsg] = useState<Record<string | number, {type:'success'|'error', text:string}>>({});
     
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedOrderDetails, setSelectedOrderDetails] = useState<KomerceOrderDetail | null>(null);
@@ -228,6 +231,9 @@ const OrdersManager: React.FC = () => {
     useEffect(() => {
         fetchOrders();
     }, [fetchOrders]);
+
+    const setMsg = (id: string|number, type:'success'|'error', text:string) =>
+      setRowMsg(prev => ({ ...prev, [id]: { type, text } }));
     
     const handleAction = async (actionId: string, action: () => Promise<any>) => {
         setActionLoading(prev => ({ ...prev, [actionId]: true }));
@@ -323,21 +329,46 @@ const OrdersManager: React.FC = () => {
         handleAction(`check-${order.order_number}`, () => supabaseService.checkOrderStatus(order.order_number));
     };
 
-    const handleCancelOrder = async (order: FullOrder) => {
-        if (!window.confirm(`Are you sure you want to cancel order ${order.order_number}? This action cannot be undone.`)) {
-            return;
+    const handleCancel = async (order: FullOrder) => {
+      if (!order.komerce_order_no) {
+        setMsg(order.id, 'error', 'Submit to Komerce first.');
+        return;
+      }
+      if (order.awb_number) {
+        setMsg(order.id, 'error', 'Cancel blocked: void label/pickup first.');
+        return;
+      }
+
+      try {
+        setLoadingId(order.id);
+        await komerceService.cancelOrderByKomerceId(order.komerce_order_no);
+
+        await supabase
+          .from('orders')
+          .update({ status: 'cancelled' })
+          .eq('komerce_order_no', order.komerce_order_no);
+
+        setOrders(prev => prev.map(o => (o.id === order.id ? { ...o, status: 'cancelled' } : o)));
+        setMsg(order.id, 'success', 'Order canceled.');
+      } catch (e: any) {
+        const code = e?.code ?? 0;
+        const name = e?.details?.error || String(e?.message || e);
+
+        if (name.includes('has_awb')) {
+          setMsg(order.id, 'error', 'Cancel blocked: void label/pickup first.');
+        } else if (name.includes('not_cancelable') || code === 409 || code === 422) {
+          setMsg(order.id, 'error', "Order already progressed; can't cancel.");
+        } else if (name.includes('misconfigured_base_url')) {
+          setMsg(order.id, 'error', 'Server misconfigured (KOMERCE_BASE_URL).');
+        } else if (name.includes('provider_error')) {
+          console.error('Provider details:', e?.details?.provider || e?.raw);
+          setMsg(order.id, 'error', 'Upstream provider error. Try again later.');
+        } else {
+          setMsg(order.id, 'error', 'Cancel failed.');
         }
-        const actionId = `cancel-${order.order_number}`;
-        setActionLoading(prev => ({ ...prev, [actionId]: true }));
-        setError(null);
-        try {
-            await komerceService.cancelOrder(order.order_number);
-            await fetchOrders(); // Refresh the list to show the 'cancelled' status
-        } catch (err: any) {
-            setError(`Failed to cancel order: ${err.message}`);
-        } finally {
-            setActionLoading(prev => ({ ...prev, [actionId]: false }));
-        }
+      } finally {
+        setLoadingId(null);
+      }
     };
 
     const handleShowDetails = async (order: FullOrder) => {
@@ -429,8 +460,12 @@ const OrdersManager: React.FC = () => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {orders.map(order => {
-                            const isCancellable = order.status === 'paid' || order.status === 'processing';
-                            const cancelTooltip = isCancellable ? '' : `Cannot cancel order with status: ${order.status.replace('_', ' ')}`;
+                            const canCancel = !!order.komerce_order_no && !order.awb_number;
+                            const cancelTooltip = !order.komerce_order_no
+                              ? 'Not submitted to Komerce'
+                              : order.awb_number
+                              ? 'Label/pickup exists—void it first'
+                              : 'Cancel order';
 
                             return (
                                 <tr key={order.id} className={selectedOrders.has(order.order_number) ? 'bg-pink-50' : ''}>
@@ -483,16 +518,22 @@ const OrdersManager: React.FC = () => {
                                            )}
                                             <div className="relative group">
                                                 <button
-                                                    onClick={() => handleCancelOrder(order)}
-                                                    disabled={!isCancellable || actionLoading[`cancel-${order.order_number}`]}
+                                                    onClick={() => handleCancel(order)}
+                                                    disabled={!canCancel || loadingId === order.id}
                                                     className="bg-red-500 text-white px-2 py-1 rounded text-xs disabled:bg-red-300 disabled:cursor-not-allowed"
+                                                    title={cancelTooltip}
                                                 >
-                                                    {actionLoading[`cancel-${order.order_number}`] ? '...' : 'Cancel'}
+                                                    {loadingId === order.id ? 'Cancelling…' : 'Cancel'}
                                                 </button>
-                                                {!isCancellable && (
+                                                {!canCancel && (
                                                     <div className="absolute left-0 bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                                                         {cancelTooltip}
                                                     </div>
+                                                )}
+                                                {rowMsg[order.id] && (
+                                                  <div className={rowMsg[order.id].type === 'success' ? 'text-green-700 text-xs mt-1' : 'text-red-700 text-xs mt-1'}>
+                                                    {rowMsg[order.id].text}
+                                                  </div>
                                                 )}
                                             </div>
                                         </div>

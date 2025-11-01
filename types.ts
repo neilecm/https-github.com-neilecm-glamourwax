@@ -257,5 +257,6 @@ export type Order = {
   komerce_order_no: string | null;  // KOM…
   awb_number: string | null;        // label/tracking → blocks cancel
   status: string | null;            // 'processing' | 'paid' | 'canceled' | ...
+  created_at?: string;
   // ...whatever else you already have
 };
