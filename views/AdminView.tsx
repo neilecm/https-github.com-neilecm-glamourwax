@@ -4,6 +4,7 @@ import { komerceService } from '../services/komerceService';
 import type { FullOrder, KomerceOrderDetail, Product, ProductVariant, ProductVariantOption, ProductVariantOptionValue } from '../types';
 import Spinner from '../components/Spinner';
 import MarketingView from './MarketingView';
+import type { Order } from '../types';
 
 type ActionLoadingState = {
     [key: string]: boolean;

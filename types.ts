@@ -249,3 +249,13 @@ export interface Profile {
   role: string | null;
   email: string | null;
 }
+
+// Simplified Order type for internal use
+export type Order = {
+  id: string | number;
+  order_no?: string | null;         // your internal "CB-…" if you store it
+  komerce_order_no: string | null;  // KOM…
+  awb_number: string | null;        // label/tracking → blocks cancel
+  status: string | null;            // 'processing' | 'paid' | 'canceled' | ...
+  // ...whatever else you already have
+};

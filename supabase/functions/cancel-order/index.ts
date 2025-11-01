@@ -1,104 +1,144 @@
-// supabase/functions/cancel-order/index.ts
+// Supabase Edge Function: cancel-order (v3)
+// Built: 2025-11-01T08:20:47Z
+// This version includes:
+//  - safe JSON parsing (no crashes on empty/invalid JSON)
+//  - query param fallback (?orderNo=...)
+//  - maps camelCase orderNo -> Komerce snake_case order_no
+//  - interprets Komerce 422 as 409 not_cancelable for clearer app logic
+//  - guards against misconfigured KOMERCE_BASE_URL (e.g., Supabase domain)
+//  - consistent CORS headers
+//  - per-request IDs and boot banner logs
 
-declare const Deno: {
-  env: { get(key: string): string | undefined; };
+const JSON_HDR = { "Content-Type": "application/json" };
+const CORS_HDR = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Boot banner
+console.log("[cancel-order][v3] booted at 2025-11-01T08:20:47Z");
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function withCors(body: BodyInit | null, init: ResponseInit): Response {
+  const headers = new Headers(init.headers || {});
+  for (const [k, v] of Object.entries(CORS_HDR)) headers.set(k, v as string);
+  return new Response(body, { ...init, headers });
+}
 
-const KOMERCE_CANCEL_URL = 'https://api-sandbox.collaborator.komerce.id/order/api/v1/orders/cancel';
-
-serve(async (req) => {
-  console.log(`[cancel-order] Invoked with method: ${req.method}`);
-
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-
+Deno.serve(async (req) => {
+  const reqId = crypto.randomUUID().slice(0, 8);
   try {
-    const { orderNo } = await req.json();
-    if (!orderNo) throw new Error("Missing 'orderNo' in request body.");
-    console.log(`[cancel-order] Received request for order: ${orderNo}`);
-
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-    const KOMERCE_API_KEY = Deno.env.get('KOMERCE_API_KEY');
-    if (!KOMERCE_API_KEY) throw new Error("KOMERCE_API_KEY secret is not configured.");
-
-    // Step 1: Fetch Order Details from DB
-    const { data: order, error: fetchError } = await supabaseAdmin
-      .from('orders')
-      .select('status, komerce_order_no')
-      .eq('order_number', orderNo)
-      .single();
-
-    if (fetchError) throw new Error(`DB Error (Fetch Order): ${fetchError.message}`);
-    if (!order) throw new Error(`Order ${orderNo} not found in the database.`);
-    
-    // Step 2: Validate Order Status for Cancellation
-    if (order.status !== 'paid' && order.status !== 'processing') {
-      throw new Error(`Cannot cancel order. Its current status is '${order.status}', which is not a cancellable state.`);
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      return withCors(null, { status: 204 });
     }
 
-    // Step 3: Cancel with Komerce API if applicable
-    if (order.komerce_order_no) {
-      console.log(`[cancel-order] Order has Komerce ID (${order.komerce_order_no}). Sending cancellation request to Komerce.`);
-      
-      const komercePayload = { order_no: order.komerce_order_no };
-
-      const komerceResponse = await fetch(KOMERCE_CANCEL_URL, {
-        method: 'POST', // FIX: Changed from PUT to POST to match Komerce API conventions
-        headers: {
-          'x-api-key': KOMERCE_API_KEY,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(komercePayload)
-      });
-
-      const komerceJson = await komerceResponse.json();
-      
-      if (!komerceResponse.ok || komerceJson.meta?.status !== 'success') {
-        const errorMessage = komerceJson.data?.errors || komerceJson.meta?.message || 'Unknown Komerce API error.';
-        console.error(`[cancel-order] Komerce API failed with status ${komerceResponse.status}:`, JSON.stringify(komerceJson));
-        throw new Error(`Komerce API Error: ${errorMessage}`);
+    const urlObj = new URL(req.url);
+    const ct = req.headers.get("content-type") ?? "";
+    const rawIn = await req.text();
+    let body: any = {};
+    if (ct.includes("application/json") && rawIn.trim() !== "") {
+      try { body = JSON.parse(rawIn); }
+      catch (e) {
+        console.error("[cancel-order][v3]", reqId, "bad_json:", String(e));
+        return withCors(
+          JSON.stringify({ error: "bad_json", detail: String(e), sampleLen: rawIn.length }),
+          { status: 400, headers: JSON_HDR }
+        );
       }
-      console.log(`[cancel-order] Successfully cancelled order with Komerce.`);
-    } else {
-       console.log(`[cancel-order] Order has no Komerce ID. Skipping Komerce API call.`);
     }
 
-    // Step 4: Update Internal Order Status
-    console.log(`[cancel-order] Updating internal status for order ${orderNo} to 'cancelled'.`);
-    const { error: updateError } = await supabaseAdmin
-      .from('orders')
-      .update({ status: 'cancelled' })
-      .eq('order_number', orderNo);
-
-    if (updateError) {
-      throw new Error(`DB Error (Update Status): ${updateError.message}`);
+    // Accept orderNo from body or query param
+    let orderNo: string | null = body?.orderNo ?? urlObj.searchParams.get("orderNo");
+    // If a client sent orderNos: string[] (from arrange-pickup pattern), take the first for cancel
+    if (!orderNo && Array.isArray(body?.orderNos) && body.orderNos.length > 0) {
+      orderNo = String(body.orderNos[0]);
     }
 
-    console.log(`[cancel-order] Successfully completed cancellation for ${orderNo}.`);
-    return new Response(JSON.stringify({ success: true, message: `Order ${orderNo} has been cancelled.` }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    if (!orderNo || typeof orderNo !== "string" || orderNo.trim() === "") {
+      console.warn("[cancel-order][v3]", reqId, "missing_orderNo");
+      return withCors(
+        JSON.stringify({ error: "missing_orderNo" }),
+        { status: 400, headers: JSON_HDR }
+      );
+    }
+    orderNo = orderNo.trim();
+
+    // Env
+    const BASE = Deno.env.get("KOMERCE_BASE_URL");
+    const API_KEY = Deno.env.get("KOMERCE_API_KEY");
+    if (!BASE || !API_KEY) {
+      console.error("[cancel-order][v3]", reqId, "missing_env", { hasBASE: !!BASE, hasAPI: !!API_KEY });
+      return withCors(
+        JSON.stringify({ error: "missing_env", hasBASE: !!BASE, hasAPI: !!API_KEY }),
+        { status: 500, headers: JSON_HDR }
+      );
+    }
+
+    // Guard: wrong base (common mistake: using Supabase domain)
+    if ((BASE ?? "").includes("supabase.co")) {
+      console.error("[cancel-order][v3]", reqId, "misconfigured_base_url", BASE);
+      return withCors(
+        JSON.stringify({
+          error: "misconfigured_base_url",
+          hint: "Set KOMERCE_BASE_URL to the Komerce/Komship Delivery API base, not your Supabase URL."
+        }),
+        { status: 500, headers: JSON_HDR }
+      );
+    }
+
+    // Upstream request to Komerce (adjust path/method if their docs require)
+    const upstreamUrl = new URL("/order/api/v1/orders/cancel", BASE).toString();
+    console.log("[cancel-order][v3]", reqId, "→", upstreamUrl, "orderNo:", orderNo);
+
+    const upstream = await fetch(upstreamUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": API_KEY,
+      },
+      // Komerce expects snake_case field name
+      body: JSON.stringify({ order_no: orderNo }),
     });
 
-  } catch (err) {
-    console.error("[cancel-order] A critical error occurred:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    });
+    const rawOut = await upstream.text();
+    const outCT = upstream.headers.get("content-type") ?? "";
+
+    if (upstream.status === 422) {
+      console.warn("[cancel-order][v3]", reqId, "not_cancelable 422");
+      return withCors(
+        JSON.stringify({
+          error: "not_cancelable",
+          reason: "order_status_invalid",
+          provider: { status: upstream.status, raw: rawOut.slice(0, 1000) }
+        }),
+        { status: 409, headers: JSON_HDR }
+      );
+    }
+
+    if (!upstream.ok) {
+      console.error("[cancel-order][v3]", reqId, "provider_error", upstream.status, outCT);
+      return withCors(
+        JSON.stringify({
+          error: "provider_error",
+          status: upstream.status,
+          contentType: outCT,
+          url: upstreamUrl,
+          raw: rawOut.slice(0, 1000),
+        }),
+        { status: 502, headers: JSON_HDR }
+      );
+    }
+
+    let payload: unknown = rawOut;
+    if (outCT.includes("application/json")) {
+      try { payload = JSON.parse(rawOut); } catch { payload = { raw: rawOut }; }
+    }
+
+    console.log("[cancel-order][v3]", reqId, "ok");
+    return withCors(JSON.stringify({ ok: true, payload }), { status: 200, headers: JSON_HDR });
+  } catch (e) {
+    console.error("[cancel-order][v3]", reqId, "unhandled", String(e));
+    return withCors(JSON.stringify({ error: "unhandled", message: String(e) }), { status: 500, headers: JSON_HDR });
   }
 });

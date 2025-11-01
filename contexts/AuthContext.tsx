@@ -109,7 +109,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
         if (!session) {
             supabase.auth.signInAnonymously().catch(err => {
                 console.error("Failed to sign in anonymously on boot:", err);
